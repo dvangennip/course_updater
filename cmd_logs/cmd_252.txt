@@ -1,2 +1,0 @@
-COMMAND: Add-TeamChannelUser -GroupId facaca51-fc7e-4263-ae05-ffe39ba616e3 -DisplayName "TUT_T16H_10505" -User z5113875@ad.unsw.edu.au -Role Owner
-
