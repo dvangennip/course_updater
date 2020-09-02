@@ -1,0 +1,3 @@
+COMMAND: Add-TeamChannelUser -GroupId 458b02e9-dea0-4f74-8e09-93e95f93b473 -DisplayName "TUT_T16F_9629" -User z5092321@ad.unsw.edu.au -Role Owner
+
+Add-TeamChannelUser -GroupId 458b02e9-dea0-4f74-8e09-93e95f93b473 -DisplayName "TUT_T16F_9629" -User z5092321@ad.unsw.edu.au
