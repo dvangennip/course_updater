@@ -1,4 +1,6 @@
 .DS_store
-__pycache__*
-cmd_logs*
-teams_updater.log
+*.py[cod]
+*.so
+__pycache__/
+cmd_log/
+*.log
