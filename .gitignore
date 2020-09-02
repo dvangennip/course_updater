@@ -4,3 +4,4 @@
 __pycache__/
 cmd_log/
 *.log
+*.pyc
