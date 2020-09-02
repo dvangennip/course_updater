@@ -6,3 +6,4 @@ cmd_log/
 *.log
 *.pyc
 update_*.py
+*.log
