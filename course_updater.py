@@ -11,7 +11,7 @@
 from dataclasses import dataclass, field
 # from typing import Dict
 
-import pandas as pd
+import pandas
 from datetime import datetime
 import subprocess
 import time
@@ -19,16 +19,14 @@ import os
 import fcntl
 import re
 import getpass
-import webbrowser
+from splinter import Browser
+import keyring
 
-# improve this based on argparse lib if I have time
-# print('\nTEAMS UPDATE CHANNEL SCRIPT')
-# print('\nDownload student data from Moodle by selecting all active users, then choose "Download as CSV file". This file should include a column named Class ID. Put the downloaded CSV file in the same folder as this script.\n')
 
 # it it assumed Teams are already created and that students are auto-added to teams
 #	this script is only concerned with keeping private channels in sync with the Moodle list
 
-# make sure that for each tutorial-like ClassID, there is a corresponding private channel
+# make sure that for each tutorial-like ClassItem, there is a corresponding private channel
 #	could be done programmatically but channel name is likely hard to form without knowledge of timetable.
 #   timetable info can be fed in from classutil website but needs parsing.
 #   setting them up manually is very likely to be faster (including adding demonstrators, etc).
@@ -72,6 +70,39 @@ class User:
 		return ('Member', 'Owner')[self.owner]
 
 
+# very basic class that stores login data (handy for repeated use)
+class LoginData:
+	def __init__ (self, username=None, password=None):
+		self.app_id = 'PY_TEAMS_UPDATER'
+
+		self.username = username
+		if (self.username is None):
+			# try and retrieve first
+			self.username = keyring.get_password(self.app_id, 'username_key')
+
+			if (self.username is None):
+				# get new username
+				self.username = input('Username: ')
+			
+		if (self.username.find('@') == -1):
+			self.username += '@ad.unsw.edu.au'
+
+		# store for later use
+		keyring.set_password(self.app_id, 'username_key', self.username)
+		
+		self.password = password
+		if (self.password is None):
+			# try and retrieve
+			self.password = keyring.get_password(self.app_id, self.username)
+
+			if (self.password is None):
+				# get input for a new password
+				self.password = getpass.getpass(prompt='Password: ')
+
+		# store
+		keyring.set_password(self.app_id, self.username, self.password)
+
+
 # -----------------------------------------------------------------------------
 # default input variables
 
@@ -98,6 +129,11 @@ my_user_whitelist = []
 # the login step requires the shell process to stay alive between calls
 # and now you have to tame powershell somehow, making you wonder if simply
 # learning powershell in the first place wouldn't have been a better bet
+#
+# handles powershell commands in the background, works kind of like the
+# pexpect library, only returning when it encounters the reappearing prompt
+# or another string in the output that we want to stop at.
+# very simple, very likely to not work with most edge cases
 ###
 class PowerShellWrapper:
 	def __init__ (self, debug=True):
@@ -119,6 +155,19 @@ class PowerShellWrapper:
 		self.run_command('nothing - just letting it settle', False)
 		self.run_command('clear')
 
+	# so we can use the with statement
+	def __enter__ (self):
+		return self
+
+	# so we can exit after using the with statement
+	def __exit__ (self, type, value, traceback):
+		self.close()
+
+		if (traceback is None):  # no exception occured
+			pass
+		else:
+			return False  # re-raise the exception to be transparent
+
 	def close (self):
 		# disconnect and confirm any prompts that may come our way
 		if (self.connected_to_teams):
@@ -127,7 +176,7 @@ class PowerShellWrapper:
 		self.process.stdin.close()
 		self.process.kill()
 
-	def run_command (self, command, do_run=True):
+	def run_command (self, command, do_run=True, delay=0.5, return_if_found=None):
 		self.count += 1
 		# send command to process
 		if (do_run == True):
@@ -144,7 +193,7 @@ class PowerShellWrapper:
 
 		if (do_run):
 			# give things some time to settle
-			time.sleep(0.5)
+			time.sleep(delay)
 
 			while True:
 				try:
@@ -161,6 +210,10 @@ class PowerShellWrapper:
 						output += o
 						if (self.debug_mode):
 							print(o, end='')  # avoid double linefeeds when printing
+
+					# check for this after o is added to output
+					if (return_if_found is not None and o.find(return_if_found) != -1):
+						break
 
 				except TypeError:  # raised when a NoneType shows up, effectively signalling an empty buffer
 					time.sleep(0.1)
@@ -184,38 +237,92 @@ class PowerShellWrapper:
 
 		return output
 
-	def connect_to_teams (self, use_popup=True, username=None, password=None):
+	def connect_to_teams (self, login_method='popup', username=None, password=None):
 		if (self.connected_to_teams):
 			return True
 		else:
 			response = ''
 
-			if (use_popup):
-				# login via a browser window/popup
-				# works but needs user input via browser
-				webbrowser.open('https://microsoft.com/devicelogin')
+			if (login_method == 'popup' or login_method == 'default'):
+				# login via a browser window/popup - works but needs user input via browser
 				response = self.run_command('Connect-MicrosoftTeams')
-
 			else:
-				# note: this procedure doesn't work because basic authentication doesn't support the right sign-on protocols
-				#       would be cool though...
-
-				# get login details
+				# get username and password
 				username = username
 				if (username is None):
-					username = input(r'Domain\Username: ')
-
+					username = input('Username: ')
+				if (username.find('@') == -1):
+					username += '@ad.unsw.edu.au'
 				password = password
 				if (password is None):
 					password = getpass.getpass(prompt='Password: ')
 
-				# first, setup a credential object based on login details
-				self.run_command(f'$User = "{username}"')
-				self.run_command(f'$PWord = ConvertTo-SecureString -String "{password}" -AsPlainText -Force')
-				self.run_command('$Credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $User, $PWord')
-				
-				# use credentials to connect (avoids a user prompt)
-				response = self.run_command('Connect-MicrosoftTeams -Credential $Credential')
+				if (login_method == 'automated'):
+					# login via browser window but automate all actions
+					try:
+						b = Browser('firefox', headless=True)  # by default assumes firefox + geckodriver
+						b.visit('https://microsoft.com/devicelogin')
+
+						# begin connecting and get authentication code
+						response = self.run_command('Connect-MicrosoftTeams',
+							return_if_found='use a web browser to open the page https://microsoft.com/devicelogin and enter the code')
+
+						regex = re.compile('.+enter the code ([a-zA-Z0-9]{9}) to authenticate.+')
+						r = regex.search(response)
+
+						authentication_code = r.groups()[0]
+						print(authentication_code)
+
+						# fill in authentication code in text field
+						b.fill('otc', authentication_code)
+						# click next
+						b.find_by_id('idSIButton9').click()
+						# wait for next page
+						time.sleep(3)
+
+						# assume we're on a clean slate login (no history or existing login)
+
+						# fill in username
+						b.fill('loginfmt', username)
+						b.find_by_id('idSIButton9').click()
+						# wait for next page
+						time.sleep(2)
+
+						# second up, password
+						b.fill('passwd', password)
+						b.find_by_id('idSIButton9').click()
+						time.sleep(4)
+
+						# check if we are now logged in
+						if (not b.is_text_present('You have signed in to the MS Teams Powershell Cmdlets application')):
+							print('WARNING: devicelogin may have failed')
+
+						# continue the login process and fetch final response
+						response = self.run_command('just want to see more output', False, delay=3)
+						
+						b.quit()
+					except Exception as e:
+						print(e)
+				elif (login_method == 'credentials'):
+					# note: this procedure doesn't work because basic authentication doesn't support the right sign-on protocols
+					#       would be cool though...
+
+					# get login details
+					username = username
+					if (username is None):
+						username = input(r'Domain\Username: ')
+
+					password = password
+					if (password is None):
+						password = getpass.getpass(prompt='Password: ')
+
+					# first, setup a credential object based on login details
+					self.run_command(f'$User = "{username}"')
+					self.run_command(f'$PWord = ConvertTo-SecureString -String "{password}" -AsPlainText -Force')
+					self.run_command('$Credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $User, $PWord')
+					
+					# use credentials to connect (avoids a user prompt)
+					response = self.run_command('Connect-MicrosoftTeams -Credential $Credential')
 			
 			# check for succesful connection
 			if (response.find('Token Acquisition finished successfully. An access token was returned')):
@@ -292,7 +399,7 @@ class TeamsUpdater:
 		self.log_list        = []
 		
 		self.data_path       = path
-		if (path is None):
+		if (self.data_path is None):
 			self.log('Please provide a filepath to a CSV file that TeamsUpdater can read.', 'ERROR')
 			raise FileNotFoundError
 
@@ -332,9 +439,9 @@ class TeamsUpdater:
 		else:
 			return False  # re-raise the exception to be transparent
 	
-	def connect (self):
+	def connect (self, login_method='default', username=None, password=None):
 		# get connected early -> this way later commands that require a connection won't fail
-		self.connected = self.process.connect_to_teams()
+		self.connected = self.process.connect_to_teams(login_method=login_method, username=username, password=password)
 
 	def close (self):
 		# cleanup any open connections, files open
@@ -352,7 +459,7 @@ class TeamsUpdater:
 		unknown_class_ids = []
 		
 		# open and read CSV file - assumes existence of columns named Username (for zID), First Name, Surname
-		dataframe = pd.read_csv(self.data_path)
+		dataframe = pandas.read_csv(self.data_path)
 		
 		# for every user, add them to the known class lists
 		#	when complete, this gives a complete view of users in each class
@@ -368,7 +475,9 @@ class TeamsUpdater:
 			# in Moodle, more or less by definition, no ClassID -> instructor
 			if (user['Class ID'] == '-'):
 				# do another check to make sure this user is actually staff
-				if (user['Group1'].find('Staff') != -1):
+				#   adding a user to this group requires manual assignment in Moodle
+				#   as an alternative, you can add them into the user whitelist passed in at the start
+				if (isinstance(user['Group1'], str) and user['Group1'].find('Staff') != -1):
 					new_user.owner = True
 
 					# don't overwrite prior whitelist user data
@@ -593,6 +702,26 @@ class TeamsUpdater:
 
 		self.log(f'Team {team_id}: Added {user} as {role}')
 
+	def add_tab_to_channel (self, teams_group_id, channel_name, tab_info):
+		self.log('You cannot add tabs to channels yet...','ERROR')
+		
+		# no cmdlet available yet for Module MicrosoftTeams, but sharepoint-pnp has one 
+		#   Install-Module SharePointPnPPowerShellOnline
+		#   now, login with devicelogin and provide sharepoint site url (e.g., https://unsw.sharepoint.com/sites/DesignNext2)
+		#   note that this login only works for one team/sharepoint site at a time :(
+		#   Connect-PnPOnline -PnPO365ManagementShell
+		#   also needs admin permissions beyond what a regular user has :(
+		#   so best to wait until its supported in the Teams module
+		response = self.process.run_command(
+			'Add-PnPTeamsTab -Team {TEAMS_GROUP_ID} -Channel "{CHANNEL_NAME}" -DisplayName "{TAB_NAME}" -Type {TAB_TYPE} -ContentUrl "{CONTENT_URL}"'.format(
+				TEAMS_GROUP_ID = teams_group_id,
+				CHANNEL_NAME   = channel_name,
+				TAB_NAME       = tab_info['name'],
+				TAB_TYPE       = tab_info['type'],
+				CONTENT_URL    = tab_info['url']
+			)
+		)
+
 	# convenience function to find particular users
 	def find_users (self, list_to_search, search_key, search_value):
 		results = []
@@ -619,15 +748,110 @@ class TeamsUpdater:
 		self.log_file.flush()
 
 
+###
+# a simple method to download a user list CSV file from Moodle
+# course id is unique on Moodle, look at the url to find the id for your course
+###
+def moodle_get_csv (moodle_course_id, username, password):
+	print('INFO: Getting user data CSV file from Moodle...')
+
+	# use a custom profile to avoid download popup
+	profile_preferences = {
+		'browser.download.manager.showWhenStarting' : 'false',
+		'browser.helperApps.alwaysAsk.force'        : 'false',
+		'browser.download.dir'                      : os.getcwd(),
+		'browser.download.folderList'               : 2,  # signals change away from default downloads folder
+		'browser.helperApps.neverAsk.saveToDisk'    : 'text/csv, application/csv, text/html,application/xhtml+xml,application/xml, application/octet-stream, application/pdf, application/x-msexcel,application/excel,application/x-excel,application/excel,application/x-excel,application/excel, application/vnd.ms-excel,application/x-excel,application/x-msexcel,image/png,image/jpeg,text/html,text/plain,application/msword,application/xml,application/excel,text/x-c',
+		'browser.download.manager.useWindow'        : 'false',
+		'browser.helperApps.useWindow'              : 'false',
+		'browser.helperApps.showAlertonComplete'    : 'false',
+		'browser.helperApps.alertOnEXEOpen'         : 'false',
+		'browser.download.manager.focusWhenStarting': 'false'
+	}
+	b = Browser('firefox', profile_preferences=profile_preferences, headless=True)
+	
+	# login - will go to O365 authentication
+	print('INFO: Logging in...')
+	b.visit('https://moodle.telt.unsw.edu.au/auth/oidc/')
+	time.sleep(2)
+	b.fill('loginfmt', username)
+	b.find_by_id('idSIButton9').click()
+	time.sleep(2)
+	b.fill('passwd', password)
+	b.find_by_id('idSIButton9').click()
+	time.sleep(2)
+	b.find_by_id('idSIButton9').click()
+	time.sleep(4)
+
+	# check if we are now logged in
+	if (b.url.find('moodle.telt.unsw.edu.au') != -1):
+		print('INFO: Logged in to Moodle, getting users page...')
+	else:
+		print('WARNING: Moodle login may have failed')
+
+	# get all users on one page
+	b.visit(f'https://moodle.telt.unsw.edu.au/user/index.php?id={moodle_course_id}&perpage=5000&selectall=1')
+	# give extra time to let large page settle
+	time.sleep(5)
+
+	# find the course name
+	course_name = b.find_by_tag('h1')[0].text
+	filename    = course_name.lower().replace(' ','-').replace('&','-') + '.csv'
+
+	# temporarily the current file if it exists
+	#   this prevents the new download to be renamed as file(1) to avoid overwriting it
+	old_filename = filename.replace('.csv', '-old.csv')
+	if (os.path.exists(filename)):
+		os.rename(filename, old_filename)
+	
+	# select the export CSV option (which triggers a download)
+	print('INFO: Downloading user list as CSV...')
+	el = b.find_by_id('formactionid')
+	el.select('exportcsv.php')
+
+	# it is assumed the file is now automatically downloaded to the current working folder
+	#   however, there is no way of knowing the file has finished downloading
+	#   so this needs some intervention...
+	got_file = input('Downloaded file? [Y]es or [N]o: ').lower()
+
+	# don't need the browser anymore
+	b.quit()
+
+	if (got_file):
+		print(f'INFO: Moodle user data downloaded to {filename}')
+
+		# remove old file if it's there
+		if (os.path.exists(old_filename)):
+			os.remove(old_filename)
+
+		return filename
+	else:
+		# if unsuccessful we end up here...
+
+		# rename the old file to its former name
+		if (os.path.exists(old_filename)):
+			os.rename(old_filename, filename)
+
+		print(f'ERROR: Unable to download Moodle user data')
+
+
+# -----------------------------------------------------------------------------
+
+
 if __name__ == '__main__':
+	login = LoginData()
+
+	# get fresh data, overwriting the my_path variable so that gets picked up below
+	my_path = moodle_get_csv(54605, login.username, login.password)
+
 	# basic operation by default
 	with TeamsUpdater(my_path, my_classes_list, my_user_whitelist) as tu:
 		# connect at the start - everything else depends on this working
-		tu.connect()
+		# tu.connect('automated', login.username, login.password)
 		
 		# import data first - later steps build on this
 		tu.import_user_list()
-		tu.get_channels_user_list()
+		# tu.get_channels_user_list()
 
 		# sync up channels - with many users, this takes a long time (approx 8 commands/minute)
-		tu.update_channels()
+		# tu.update_channels()
