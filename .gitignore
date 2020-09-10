@@ -2,8 +2,10 @@
 *.py[cod]
 *.so
 __pycache__/
-cmd_log/
+cmd_log/*
 *.log
 *.pyc
 update_*.py
 *.log
+*.txt
+
