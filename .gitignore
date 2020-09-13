@@ -8,3 +8,5 @@ cmd_logs/
 *.pyc
 update_*.py
 *.log
+test*
+

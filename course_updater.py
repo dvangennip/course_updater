@@ -151,9 +151,14 @@ class PowerShellWrapper:
 		)
 		fcntl.fcntl(self.process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
 
+		if (self.debug_mode):
+			self.log = open('cmd_logs/alog.txt', 'w')
+
 		# run a few commands as a self test
+		time.sleep(5)
 		self.run_command('nothing - just letting it settle', False)
-		self.run_command('clear')
+		time.sleep(5)
+		self.run_command('Write-Output "check"')
 
 	# so we can use the with statement
 	def __enter__ (self):
@@ -175,6 +180,9 @@ class PowerShellWrapper:
 
 		self.process.stdin.close()
 		self.process.kill()
+
+		if (self.debug_mode):
+			self.log.close()
 
 	def run_command (self, command, do_run=True, delay=0.5, return_if_found=None):
 		self.count += 1
@@ -202,17 +210,24 @@ class PowerShellWrapper:
 					o = self.process.stdout.readline()
 
 					if re.match('PS .+?>\s{0,1}$', o) is not None:
-						# print('~~~~ REGEX MATCH - BREAKING LOOP ~~~~')
+						if (self.debug_mode):
+							self.log.write('\n~~~~ REGEX MATCH - BREAKING LOOP ~~~~\n')
 						break
 					elif (o == command or o == command + '\n'):  # linefeed is usually added
-						pass  # no need to save this
+						if (self.debug_mode):
+							self.log.write(f'\n~~~ skipping command line: {command} ~~~\n')
+						# pass  # no need to save this
 					else:
 						output += o
 						if (self.debug_mode):
 							print(o, end='')  # avoid double linefeeds when printing
+							
+							self.log.write(o)
 
 					# check for this after o is added to output
 					if (return_if_found is not None and o.find(return_if_found) != -1):
+						if (self.debug_mode):
+							self.log.write('\n~~~ found return string ~~~\n' )
 						break
 
 				except TypeError:  # raised when a NoneType shows up, effectively signalling an empty buffer
@@ -271,7 +286,7 @@ class PowerShellWrapper:
 						r = regex.search(response)
 
 						authentication_code = r.groups()[0]
-						print(authentication_code)
+						print(f'Using authorisation code: {authentication_code}')
 
 						# fill in authentication code in text field
 						b.fill('otc', authentication_code)
@@ -339,6 +354,9 @@ class PowerShellWrapper:
 	# parses command output that represents tabular data
 	# each header item is a string denoting that response table header name
 	def parse_response_table (self, input_string='', headers=[]):
+		log_file = open('cmd_logs/table_input.txt', 'w')
+		log_file.write(input_string)
+		
 		# get rid of everything before the first table header text
 		x            = input_string.find(headers[0])
 		input_string = input_string[x:]
@@ -349,6 +367,38 @@ class PowerShellWrapper:
 
 		# split into lines
 		tl = input_string.split('\n')
+
+		log_file.write('\n~~~ POST INITIAL CLEANUP ~~~\n')
+		log_file.write(input_string)
+
+		log_file.write(f'\n {len(tl)=}')
+		
+		# sometimes, the linebreaks don't make it in and we'd have to re-insert them manually...
+		if (len(tl) == 1):
+			# reset variable
+			tl = []
+
+			# get first line
+			first_line_end = input_string.find('--')
+			line           = input_string[0:first_line_end]
+			# print(line)
+			tl.append(line)
+
+			# get remaining lines (all are padded/trunked to be exactly 80 characters long, i.e. default terminal width)
+			start = first_line_end
+			end   = len(input_string)
+			while True:
+				line_end = start + 79
+				# print('~~~', start, line_end, end)
+
+				line  = input_string[start:line_end]
+				# print(line)
+				tl.append(line)
+
+				start = start + 79
+
+				if (start > end):
+					break
 
 		# --- parse each header
 
@@ -386,6 +436,9 @@ class PowerShellWrapper:
 			
 			row_data.append(d)
 
+		log_file.write('\n\n')
+		log_file.write( "; ".join(map(str,row_data)) )
+		log_file.close()
 		return row_data
 
 
@@ -395,9 +448,6 @@ class PowerShellWrapper:
 ###
 class TeamsUpdater:
 	def __init__ (self, path=None, classes={}, whitelist={}, process=None):
-		# TODO replace by file connection
-		self.log_list        = []
-		
 		self.data_path       = path
 		if (self.data_path is None):
 			self.log('Please provide a filepath to a CSV file that TeamsUpdater can read.', 'ERROR')
@@ -537,6 +587,10 @@ class TeamsUpdater:
 					userid,    # zID
 					d['Name']  # name
 				)
+
+			print(f'USER LIST for {cl.name}')
+			for k in cl['teams_user_list']:
+				print(cl['teams_user_list'][k])
 		else:
 			return False
 
@@ -634,7 +688,7 @@ class TeamsUpdater:
 
 	def update_single_channel (self, class_id):
 		cl = self.classes_list[str(class_id)]
-		self.log(f"\nUpdating class {cl} ({len(cl['desired_user_list'])} enrolments)")
+		self.log(f"Updating class {cl} ({len(cl['desired_user_list'])} enrolments)")
 
 		count_removed = 0
 		count_added   = 0
