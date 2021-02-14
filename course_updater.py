@@ -21,6 +21,7 @@ import re
 import getpass
 from splinter import Browser
 import keyring
+import json
 
 
 # it it assumed Teams are already created and that students are auto-added to teams
@@ -133,6 +134,7 @@ my_user_whitelist = []
 # handles powershell commands in the background, works kind of like the
 # pexpect library, only returning when it encounters the reappearing prompt
 # or another string in the output that we want to stop at.
+#
 # very simple, very likely to not work with most edge cases
 ###
 class PowerShellWrapper:
@@ -184,8 +186,14 @@ class PowerShellWrapper:
 		if (self.debug_mode):
 			self.log.close()
 
-	def run_command (self, command, do_run=True, delay=0.5, return_if_found=None):
+	def run_command (self, command, do_run=True, delay=0.5, return_if_found=None, convert_json=False):
 		self.count += 1
+
+		# check command and do final alterations
+		command = command
+		if (convert_json):
+			command += ' | ConvertTo-Json'  # generates output object in JSON format
+
 		# send command to process
 		if (do_run == True):
 			if (self.debug_mode):
@@ -241,6 +249,9 @@ class PowerShellWrapper:
 		# if output is a oneliner - negates the need for more parsing for simple responses
 		if (re.match('^.+?\n', output)):
 			output = output.replace('\n','')
+		
+		if (convert_json):
+			output = json.loads(output)
 
 		self.latest_output = output
 
@@ -248,7 +259,7 @@ class PowerShellWrapper:
 		if (self.debug_mode):
 			with open(f'cmd_logs/cmd_{self.count}.txt','w') as f:
 				f.write(f'COMMAND: {command}\n\n')
-				f.write(output)
+				f.write(str(output))   # making sure this is always a string
 
 		return output
 
@@ -345,14 +356,16 @@ class PowerShellWrapper:
 
 			return self.connected_to_teams
 
+	# TODO: not used at the moment
 	def parse_common_errors (self, input_string=''):
 		# TODO check for typical errors
-		#'You must call the Connect-MicrosoftTeams cmdlet before calling any other cmdlets.'
 		if (input_string.find('You must call the Connect-MicrosoftTeams cmdlet before calling any other cmdlets.')):
 			return False
 
+	# DEPRECATED
 	# parses command output that represents tabular data
 	# each header item is a string denoting that response table header name
+	# TODO: while this works... really, I ought to be using | ConvertTo-Json, parse that, and skip this process
 	def parse_response_table (self, input_string='', headers=[]):
 		log_file = open('cmd_logs/table_input.txt', 'w')
 		log_file.write(input_string)
@@ -448,10 +461,15 @@ class PowerShellWrapper:
 ###
 class TeamsUpdater:
 	def __init__ (self, path=None, classes={}, whitelist={}, process=None):
+		# open log file
+		self.log_file = open('teams_updater.log', 'a')
+		self.log_file.write('\n\n\n~~~ NEW LOG ~~~ ~~~ ~~~ ~~~')
+
+		# init variables
 		self.data_path       = path
 		if (self.data_path is None):
-			self.log('Please provide a filepath to a CSV file that TeamsUpdater can read.', 'ERROR')
-			raise FileNotFoundError
+			self.log('Please provide a filepath to a CSV file that TeamsUpdater can read.', 'WARNING')
+			# raise FileNotFoundError
 
 		# create whitelist from input list
 		# note that the list isn't technically a list but rather a dictionary
@@ -471,10 +489,6 @@ class TeamsUpdater:
 			self.process = process
 		else:
 			self.process = PowerShellWrapper()
-
-		# open log file
-		self.log_file = open('teams_updater.log', 'a')
-		self.log_file.write('\n\n\n~~~ NEW LOG ~~~ ~~~ ~~~ ~~~')
 	
 	# so we can use the with statement
 	def __enter__ (self):
@@ -507,6 +521,10 @@ class TeamsUpdater:
 		self.log(f'Importing data from: {self.data_path}')
 
 		unknown_class_ids = []
+
+		count_instructors = 0
+		count_students    = 0
+		count_unknown     = 0
 		
 		# open and read CSV file - assumes existence of columns named Username (for zID), First Name, Surname
 		dataframe = pandas.read_csv(self.data_path)
@@ -522,19 +540,22 @@ class TeamsUpdater:
 			)
 
 			# users without classes assigned get added to the whitelist
-			# in Moodle, more or less by definition, no ClassID -> instructor
+			# in Moodle, more or less by definition, no ClassID -> staff
 			if (user['Class ID'] == '-'):
 				# do another check to make sure this user is actually staff
 				#   adding a user to this group requires manual assignment in Moodle
 				#   as an alternative, you can add them into the user whitelist passed in at the start
-				if (isinstance(user['Group1'], str) and user['Group1'].find('Staff') != -1):
+				if (isinstance(user['Group1'], str) and user['Group1'].lower().find('staff') != -1):
 					new_user.owner = True
 
 					# don't overwrite prior whitelist user data
 					if (user_id not in self.user_whitelist.keys()):
 						self.user_whitelist[user_id] = new_user
+
+					count_instructors += 1
 				else:
 					self.log(f'User {new_user} has no Class IDs but is not a staff member: skipped.', 'WARNING')
+					count_unknown += 1
 			else:
 				# field is comma-separated, so undo this first
 				class_ids = user['Class ID'].split(',')
@@ -551,13 +572,15 @@ class TeamsUpdater:
 						else:
 							pass  # ignore any later encounters
 
+				count_students += 1
+
 		# sort the unknown class ids from low to high (requires intermediate conversion to int)
 		unknown_class_ids = list(map(int, unknown_class_ids))
 		unknown_class_ids.sort()
 		unknown_class_ids = list(map(str, unknown_class_ids))
 		self.log(f'No class items that match Class IDs {", ".join(unknown_class_ids)}')
 
-		self.log(f'Imported data on {len(dataframe.index)} users.\n\n')
+		self.log(f'Imported data on {len(dataframe.index)} users (students: {count_students}, instructors: {count_instructors}, unknown: {count_unknown}).\n\n')
 
 	def get_channels_user_list (self):
 		# iterate over each relevant Class ID
@@ -572,16 +595,17 @@ class TeamsUpdater:
 			'Get-TeamChannelUser -GroupId {TEAMS_GROUP_ID} -DisplayName "{CHANNEL_NAME}"'.format(
 				TEAMS_GROUP_ID = cl.teams_group_id,
 				CHANNEL_NAME   = cl.name
-			)
+			),
+			convert_json = True
 		)
 
 		# parse response
 		# if channel not found, stop
-		if (response.find('Channel not found') == -1):
-			data = self.process.parse_response_table(response, ['UserId', 'User ', 'Name'])
-
+		if (type(response) == 'str' and response.find('Channel not found') != -1):
+			return False
+		else:
 			# feed data into class list
-			for d in data:
+			for d in response:
 				userid = d['User '].lower().replace('@ad.unsw.edu.au','')  # 'User ' = accountname@domain
 				cl['teams_user_list'][userid] = User(
 					userid,    # zID
@@ -591,8 +615,6 @@ class TeamsUpdater:
 			print(f'USER LIST for {cl.name}')
 			for k in cl['teams_user_list']:
 				print(cl['teams_user_list'][k])
-		else:
-			return False
 
 	def create_channels (self, channel_type='Private', owners=[]):
 		for class_id in self.classes_list:
@@ -618,10 +640,10 @@ class TeamsUpdater:
 
 		# if all good, set owners
 		for o in owners:
-			self.add_user_to_channel(class_id, user=o, role='Owner')
+			self.add_user_to_class_channel(class_id, user=o, role='Owner')
 
 	# convenience function to add a single user to all channels at once
-	def add_user_to_all_channels (self, user=User, role='Member', course_list=[]):
+	def add_user_to_all_class_channels (self, user=User, role='Member', course_list=[]):
 		for class_id in self.classes_list:
 			cl  = self.classes_list[class_id]
 
@@ -629,41 +651,40 @@ class TeamsUpdater:
 			if (len(course_list) > 0 and cl.course not in course_list):
 				continue  # skip this iteration and move on
 
-			self.add_user_to_channel(cl.id, user, role)
+			self.add_user_to_class_channel(cl.id, user, role)
 
-	def add_user_to_channel (self, class_id, user=User, role='Member'):
-		cl = self.classes_list[str(class_id)]
+	# TODO deprecate this function
+	def add_user_to_class_channel (self, class_id, user=User, role='Member'):
+		cl           = self.classes_list[str(class_id)]
+		team_id      = cl['teams_group_id']
+		channel_name = cl['name']
 
+		return self.add_user_to_channel(team_id, channel_name, user, role)
+
+	def add_user_to_channel (self, team_id, channel_name, user=User, role='Member'):
 		# add to relevant channel
 		response = self.process.run_command(
-			'Add-TeamChannelUser -GroupId {TEAMS_GROUP_ID} -DisplayName "{CHANNEL_NAME}" -User {USER}'.format(
-				TEAMS_GROUP_ID = cl['teams_group_id'],
-				CHANNEL_NAME   = cl['name'],
-				USER           = '{id}@ad.unsw.edu.au'.format(id=user.id)
-			)
+			f'Add-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}" -User {user.id}@ad.unsw.edu.au'
 		)
 
 		# owners needs to be added as regular members first, then set to owner status
 		if (response.find('User is not found in the team.') == -1 and role == 'Owner'):
 			response = self.process.run_command(
-				'Add-TeamChannelUser -GroupId {TEAMS_GROUP_ID} -DisplayName "{CHANNEL_NAME}" -User {USER} -Role {ROLE}'.format(
-					TEAMS_GROUP_ID = cl['teams_group_id'],
-					CHANNEL_NAME   = cl['name'],
-					USER           = f'{user.id}@ad.unsw.edu.au',
-					ROLE           = role
-				)
+				f'Add-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}" -User {user.id}@ad.unsw.edu.au -Role {role}'
 			)
 
 		# parse response
 		success = True
-		if (response.find('Could not find member.') != -1):
+		if (response.find('User is not found in the team.') != -1 or response.find('Could not find member.') != -1):
 			success = False
-
-		self.log(f'Class {cl}: Added {user} as {role}')
+			self.log(f'Channel {channel_name}: Could not add {user} as {role}', 'ERROR')
+		else:
+			self.log(f'Channel {channel_name}: Added {user} as {role}')
 
 		return success
 
-	def remove_user_from_channel (self, class_id, user=User, role='Member'):
+
+	def remove_user_from_class_channel (self, class_id, user=User, role='Member'):
 		cl = self.classes_list[str(class_id)]
 
 		# add to relevant channel
@@ -676,6 +697,13 @@ class TeamsUpdater:
 		)
 
 		# TODO parse response
+		# Remove-TeamChannelUser: Error occurred while executing 
+		# Code: NotFound
+		# Message: Not Found
+		# InnerError:
+		# RequestId: 55982b3c-1319-4614-97bf-68e67ea94f90
+		# DateTimeStamp: 2020-09-19T23:46:30
+		# HttpStatusCode: NotFound
 		success = True
 
 		self.log(f'Class {cl}: Removed {user} as {role}')
@@ -683,8 +711,16 @@ class TeamsUpdater:
 		return success
 
 	def update_channels (self):
+		total_count_removed = 0
+		total_count_added   = 0
+
 		for class_id in self.classes_list:
-			self.update_single_channel(class_id)
+			(r, a) = self.update_single_channel(class_id)
+
+			total_count_removed += r
+			total_count_added   += a
+
+		self.log(f'Updating all channels (totals: - {total_count_removed} / + {total_count_added})')
 
 	def update_single_channel (self, class_id):
 		cl = self.classes_list[str(class_id)]
@@ -697,7 +733,7 @@ class TeamsUpdater:
 		#	remove any not on desired list (but check against whitelist, those are save from deletion)
 		for user_in_teams_list in cl['teams_user_list']:
 			if (user_in_teams_list not in cl['desired_user_list'] and user_in_teams_list not in self.user_whitelist):
-				response = self.remove_user_from_channel(class_id, cl['teams_user_list'][user_in_teams_list])
+				response = self.remove_user_from_class_channel(class_id, cl['teams_user_list'][user_in_teams_list])
 				
 				if (response):
 					count_removed += 1
@@ -705,17 +741,20 @@ class TeamsUpdater:
 		# add any not in teams list but on desired list
 		for user_in_desired_list in cl['desired_user_list']:
 			if (user_in_desired_list not in cl['teams_user_list']):
-				response = self.add_user_to_channel(class_id, cl['desired_user_list'][user_in_desired_list])
+				response = self.add_user_to_class_channel(class_id, cl['desired_user_list'][user_in_desired_list])
 				
 				if (response):
 					count_added += 1
 
 		self.log(f'Updating class {cl} complete (- {count_removed} / + {count_added})')
 
+		return (count_removed, count_added)
+
 	# see: https://docs.microsoft.com/en-us/powershell/module/teams/new-team?view=teams-ps
 	# info parameter isn't required for anything but may be useful to parse the logs and keep team data and other info together.
 	def create_team (self, name, description='', visibility='Private', owners=[], info=''):
 		
+		# TODO improve this by using convert_json = True to get team object in one go
 		# create team
 		response = self.process.run_command(
 			f'$group = New-Team -DisplayName "{name}" -Description "{description}" -Visibility {visibility}'
@@ -731,6 +770,39 @@ class TeamsUpdater:
 			self.log(f'Created {visibility.lower()} team {name} ({response_group_id}) ({info=})')
 
 			self.add_users_to_team(response_group_id, owners, 'Owner')
+
+	def get_single_team_user_list (self, team_id, role='Member'):
+		# get list of current users in team
+		# TODO handle the optional role parameter as filter
+		response = self.process.run_command(
+			f'Get-TeamUser -GroupId {team_id}',
+			convert_json = True
+		)
+
+		# parse response
+		# if channel not found, stop
+		if (type(response) == 'str' and response.find('Team not found') != -1):
+			return False
+		else:
+			# feed response data into list
+			user_list = {}
+
+			for d in response:
+				userid = d['User'].lower().replace('@ad.unsw.edu.au','')  # 'User ' = accountname@domain
+				user_list[userid] = User(
+					userid,    # zID
+					d['Name']  # name
+				)
+
+			print(f'USER LIST for {team_id}')
+			for k in user_list:
+				print(user_list[k])
+
+			return user_list
+
+	def update_single_team (self, team_id, team_user_list, desired_user_list):
+		# TODO
+		print('ERROR: Not implemented yet')
 
 	def remove_users_from_team (self, team_id, users=[User], role='Member'):
 		for u in users:
@@ -806,87 +878,283 @@ class TeamsUpdater:
 # a simple method to download a user list CSV file from Moodle
 # course id is unique on Moodle, look at the url to find the id for your course
 ###
-def moodle_get_csv (moodle_course_id, username, password):
-	print('INFO: Getting user data CSV file from Moodle...')
+class MoodleUpdater:
+	def __init__ (self, course_id, username, password):
+		self.course_id = course_id
+		self.csv_file  = None
+		self.logged_in = False
 
-	# use a custom profile to avoid download popup
-	profile_preferences = {
-		'browser.download.manager.showWhenStarting' : 'false',
-		'browser.helperApps.alwaysAsk.force'        : 'false',
-		'browser.download.dir'                      : os.getcwd(),
-		'browser.download.folderList'               : 2,  # signals change away from default downloads folder
-		'browser.helperApps.neverAsk.saveToDisk'    : 'text/csv, application/csv, text/html,application/xhtml+xml,application/xml, application/octet-stream, application/pdf, application/x-msexcel,application/excel,application/x-excel,application/excel,application/x-excel,application/excel, application/vnd.ms-excel,application/x-excel,application/x-msexcel,image/png,image/jpeg,text/html,text/plain,application/msword,application/xml,application/excel,text/x-c',
-		'browser.download.manager.useWindow'        : 'false',
-		'browser.helperApps.useWindow'              : 'false',
-		'browser.helperApps.showAlertonComplete'    : 'false',
-		'browser.helperApps.alertOnEXEOpen'         : 'false',
-		'browser.download.manager.focusWhenStarting': 'false'
-	}
-	b = Browser('firefox', profile_preferences=profile_preferences, headless=True)
-	
-	# login - will go to O365 authentication
-	print('INFO: Logging in...')
-	b.visit('https://moodle.telt.unsw.edu.au/auth/oidc/')
-	time.sleep(2)
-	b.fill('loginfmt', username)
-	b.find_by_id('idSIButton9').click()
-	time.sleep(2)
-	b.fill('passwd', password)
-	b.find_by_id('idSIButton9').click()
-	time.sleep(2)
-	b.find_by_id('idSIButton9').click()
-	time.sleep(4)
+		self.login(username, password)
 
-	# check if we are now logged in
-	if (b.url.find('moodle.telt.unsw.edu.au') != -1):
-		print('INFO: Logged in to Moodle, getting users page...')
-	else:
+	def login (self, username, password):
+		print('INFO: Logging in to Moodle...')
+		
+		# use a custom profile to avoid download popup
+		profile_preferences = {
+			'browser.download.manager.showWhenStarting' : 'false',
+			'browser.helperApps.alwaysAsk.force'        : 'false',
+			'browser.download.folderList'               : 2,  # signals change away from default downloads folder
+			'browser.download.dir'                      : os.getcwd(),
+			'browser.helperApps.neverAsk.saveToDisk'    : 'text/csv, application/csv, text/html,application/xhtml+xml,application/xml, application/octet-stream, application/pdf, application/x-msexcel,application/excel,application/x-excel,application/excel,application/x-excel,application/excel, application/vnd.ms-excel,application/x-excel,application/x-msexcel,image/png,image/jpeg,text/html,text/plain,application/msword,application/xml,application/excel,text/x-c',
+			'browser.download.manager.useWindow'        : 'false',
+			'browser.helperApps.useWindow'              : 'false',
+			'browser.helperApps.showAlertonComplete'    : 'false',
+			'browser.helperApps.alertOnEXEOpen'         : 'false',
+			'browser.download.manager.focusWhenStarting': 'false'
+		}
+		self.browser = Browser('firefox', profile_preferences=profile_preferences, headless=True)
+		
+		# login - will go to O365 authentication
+		self.browser.visit('https://moodle.telt.unsw.edu.au/auth/oidc/')
+		time.sleep(2)
+		self.browser.fill('loginfmt', username)
+		self.browser.find_by_id('idSIButton9').click()
+		time.sleep(2)
+		self.browser.fill('passwd', password)
+		self.browser.find_by_id('idSIButton9').click()
+		time.sleep(2)
+		self.browser.find_by_id('idSIButton9').click()
+		time.sleep(4)
+
+		# check if we are now logged in
+		if (self.browser.url.find('moodle.telt.unsw.edu.au') != -1):
+			print('INFO: Logged in to Moodle successfully.')
+			self.logged_in = True
+			return True
+		
+		# else
 		print('WARNING: Moodle login may have failed')
+		# TODO handle this situation properly, we shouldn't continue
+		return False
 
-	# get all users on one page
-	b.visit(f'https://moodle.telt.unsw.edu.au/user/index.php?id={moodle_course_id}&perpage=5000&selectall=1')
-	# give extra time to let large page settle
-	time.sleep(5)
+	def close (self):
+		# don't need the browser anymore
+		self.browser.quit()
 
-	# find the course name
-	course_name = b.find_by_tag('h1')[0].text
-	filename    = course_name.lower().replace(' ','-').replace('&','-') + '.csv'
+	# so we can use the with statement
+	def __enter__ (self):
+		return self
 
-	# temporarily the current file if it exists
-	#   this prevents the new download to be renamed as file(1) to avoid overwriting it
-	old_filename = filename.replace('.csv', '-old.csv')
-	if (os.path.exists(filename)):
-		os.rename(filename, old_filename)
+	# so we can exit after using the with statement
+	def __exit__ (self, type, value, traceback):
+		self.close()
+
+		if (traceback is None):  # no exception occured
+			pass
+		else:
+			return False  # re-raise the exception to be transparent
+
+	def get_users_csv (self):
+		print('INFO: Getting user data CSV file from Moodle...')
 	
-	# select the export CSV option (which triggers a download)
-	print('INFO: Downloading user list as CSV...')
-	el = b.find_by_id('formactionid')
-	el.select('exportcsv.php')
+		# get all users on one page
+		self.browser.visit(f'https://moodle.telt.unsw.edu.au/user/index.php?id={self.course_id}&perpage=5000&selectall=1')
+		# give extra time to let large page settle
+		time.sleep(30)
+		# check if the 'select all' checkbox is ticked (should be per the url but fails with slow/large courses)
+		checkbox_el    = self.browser.find_by_id('select-all-participants')
+		checkbox_label = self.browser.find_by_css('label[for=select-all-participants]')
+		# .text says 'Deselect all' if it's checked; 'Select all' if unchecked
+		if (checkbox_label.text != 'Deselect all'):
+			checkbox_el.click()  # select it now
+			time.sleep(5)        # can be slow with 1000+ users
 
-	# it is assumed the file is now automatically downloaded to the current working folder
-	#   however, there is no way of knowing the file has finished downloading
-	#   so this needs some intervention...
-	got_file = input('Downloaded file? [Y]es or [N]o: ').lower()
+		# find the course name
+		course_name = self.browser.find_by_tag('h1')[0].text
+		filename    = course_name.lower().replace(' ','-').replace('&','-') + '.csv'
 
-	# don't need the browser anymore
-	b.quit()
+		# temporarily move the current file if it exists
+		#   this prevents the new download to be renamed by the browser as file(1) to avoid overwriting it
+		old_filename = filename.replace('.csv', '-old.csv')
+		if (os.path.exists(filename)):
+			os.rename(filename, old_filename)
+		
+		# select the export CSV option (which triggers a download)
+		print('INFO: Downloading user list as CSV...')
+		el = self.browser.find_by_id('formactionid')
+		el.select('exportcsv.php')
 
-	if (got_file):
-		print(f'INFO: Moodle user data downloaded to {filename}')
+		# it is assumed the file is now automatically downloaded to the current working folder
+		#   however, there is no way of knowing the file has finished downloading
+		#   so this needs some intervention...
+		got_file = input('Downloaded file? [Y]es or [N]o: ').lower()
 
-		# remove old file if it's there
-		if (os.path.exists(old_filename)):
-			os.remove(old_filename)
+		if ('y' in got_file):
+			print(f'INFO: Moodle user data downloaded to {filename}')
 
-		return filename
-	else:
-		# if unsuccessful we end up here...
+			# remove old file if it's there
+			if (os.path.exists(old_filename)):
+				os.remove(old_filename)
 
-		# rename the old file to its former name
-		if (os.path.exists(old_filename)):
-			os.rename(old_filename, filename)
+			self.csv_file = filename
+			return filename
+		else:
+			# if unsuccessful we end up here...
+			print(f'ERROR: Unable to download Moodle user data')
 
-		print(f'ERROR: Unable to download Moodle user data')
+			# rename the old file to its former name
+			if (os.path.exists(old_filename)):
+				os.rename(old_filename, filename)
+
+				return filename
+
+	def get_grades_csv (self):
+		print('INFO: Getting grades data CSV file from Moodle...')
+		
+		# go to grades download page (and just get all grades)
+		self.browser.visit(f'https://moodle.telt.unsw.edu.au/grade/export/txt/index.php?id={self.course_id}')
+
+		# click download button (name of input: 'submitbutton')
+		self.browser.find_by_id('id_submitbutton').click()
+
+		# TODO work out file download
+		# filename example: 'DESN2000-5209_01060 Grades-20201022_0823-comma_separated.csv'
+
+		# import os
+		# import time
+		# def tiny_file_rename(newname, folder_of_download):
+		# 	filename = max([f for f in os.listdir(folder_of_download)], key=lambda xa :   os.path.getctime(os.path.join(folder_of_download,xa)))
+		# 	if '.part' in filename:
+			# 	time.sleep(1)
+			# 	os.rename(os.path.join(folder_of_download, filename), os.path.join(folder_of_download, newname))
+		# 	else:
+			# 	os.rename(os.path.join(folder_of_download, filename),os.path.join(folder_of_download,newname))
+
+		# import os
+		# import shutil
+		# filepath = 'c:\downloads'
+		# filename = max([filepath +"\"+ f for f in os.listdir(filepath)], key=os.path.getctime)
+		# shutil.move(os.path.join(dirpath,filename),newfilename)
+
+	def auto_create_groups (self, group_by_type='classid', grouping_id=None):
+		print(f'INFO: Auto-creating groups by {group_by_type}...')
+		
+		# go straight to the auto-create groups page for the course
+		self.browser.visit(f'https://moodle.telt.unsw.edu.au/group/autogroup.php?courseid={self.course_id}')
+		
+		# pick the grouping type
+		group_type_el = self.browser.find_by_id('id_groupby')
+		group_type_el.select( group_by_type.lower().replace(' ', '') )
+
+		if (grouping_id is not None):
+			# make the grouping selection area visible
+			grouping_field_el  = self.browser.find_by_id('id_groupinghdr')
+			grouping_header_el = grouping_field_el.first.find_by_tag('a')
+			grouping_header_el.click()
+
+			# select the pre-existing grouping id
+			grouping_select_el = self.browser.find_by_id('id_grouping')
+			grouping_select_el.select(grouping_id)  # e.g., the id 53183 may correspond to desired grouping id
+
+		# submit the form
+		self.browser.find_by_id('id_submitbutton').click()
+
+		# give additional time to settle
+		time.sleep(5)
+
+		print('INFO: Auto-creating groups complete.')
+
+	# EXPERIMENTAL - completely untested
+	def add_gradebook_category (self, category_info={}):
+		# go straight to add/edit gradebook category page
+		self.browser.visit(f'https://moodle.telt.unsw.edu.au/grade/edit/tree/category.php?courseid={self.course_id}')
+
+		# expand all panes to simplify later steps
+		expand_el = self.browser.find_by_css('a[class=collapseexpand]')
+		expand_el.click()
+
+		# set fields
+		# category name
+		if (category_info['name']):
+			self.browser.find_by_css('input[id=id_fullname]').fill(category_info['name'])
+		# aggregation method           
+		if (category_info['aggregation']):
+			aggr_el = self.browser.find_by_css('select[id=id_aggregation]')
+			self.browser.select('id_aggregation', category_info['aggregation'])
+		# ID number
+		if (category_info['id']):
+			self.browser.find_by_css('input[id=id_grade_item_idnumber]').fill(category_info['id'])
+		# max grade
+		if (category_info['grade_max']):
+			self.browser.find_by_css('input[id=id_grade_item_grademax]').fill(category_info['grade_max'])
+		# parent category
+		if (category_info['parent_category']):
+			self.browser.select('id_parentcategory', category_info['parent_category'])
+
+		save_button_el = self.browser.find_by_id('id_submitbutton')
+		save_button_el.click()
+
+		# give some time to settle
+		time.sleep(5)
+
+		# new page will load, showing grade updates in progress
+		# no need to click continue button as long as we know process completes (button appears then)
+		continue_button_not_found = True
+
+		while (continue_button_not_found):
+			time.sleep(5)
+			# TODO improve finding process to get this unique button
+			continue_el = self.browser.find_by_css('button[type=submit]')
+
+			if (continue_el == []):  # empty list means element is not found
+				continue
+			else:
+				continue_button_not_found = False
+				continue_el.click()
+
+				# going back to gradebook now
+				time.sleep(15)
+				break
+
+		# search for weight input field
+		if (category_info['weight']):
+			# first, find category_weight_id on the page
+			# iterate over every relevant label and check the .text value for a match
+			category_weight_id = None
+			label_els          = self.browser.find_by_css('label[class=accesshide]')
+			
+			for l in label_els:
+				if (l.text == f"Extra credit value for {category_info['name']}"):
+					category_weight_id = label_el.get_attribute('for')
+					break  # exit for loop
+			
+			if (category_weight_id is not None):
+				weight_el = self.browser.find_by_css(f'input[id=weight_{category_weight_id}]')
+				weight_el.fill(category_info['weight'])
+
+				# submit changes
+				self.browser.find_by_css('input[value=Save changes]').click()
+
+				time.sleep(5)
+
+	# TODO
+	def add_section (self, section_info={}):
+		# go to course main page and enable editing
+		self.browser.visit(f'https://moodle.telt.unsw.edu.au/course/view.php?id={self.course_id}&notifyeditingon=1')
+
+		# add an empty section
+		self.browser.find_by_css('a[class=increase-sections]').click()
+		# wait for page to reload
+		time.sleep(10)
+
+		# edit section
+		# TODO find out section id (or pick last (new) section edit button)
+		section_id = 0 #TODO
+		self.browser.visit(f'https://moodle.telt.unsw.edu.au/course/editsection.php?id={section_id}&sr=0')
+		time.sleep(10)
+
+		# expand all
+
+		# fill name
+		#fill(section_info['name'])
+		# fill description
+		#fill(section_info['description'])
+		
+		# set access restrictions
+
+		# save changes
+		#TODO
+		time.sleep(20)
 
 
 # -----------------------------------------------------------------------------
@@ -895,8 +1163,8 @@ def moodle_get_csv (moodle_course_id, username, password):
 if __name__ == '__main__':
 	login = LoginData()
 
-	# get fresh data, overwriting the my_path variable so that gets picked up below
-	my_path = moodle_get_csv(54605, login.username, login.password)
+	# with MoodleUpdater(54605, login.username, login.password) as mu:
+	# 	my_path = mu.get_users_csv()
 
 	# basic operation by default
 	with TeamsUpdater(my_path, my_classes_list, my_user_whitelist) as tu:

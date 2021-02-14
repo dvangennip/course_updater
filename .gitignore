@@ -10,3 +10,5 @@ update_*.py
 *.log
 test*
 
+*.csv
+*.txt

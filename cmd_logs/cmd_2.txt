@@ -1,3 +1,0 @@
-COMMAND: clear
-
-PowerShell 7.0.3Copyright (c) Microsoft Corporation. All rights reserved.https://aka.ms/powershellType 'help' to get help.
