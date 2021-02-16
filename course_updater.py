@@ -423,7 +423,7 @@ class TeamsUpdater:
 
 	def get_all_data (self):
 		self.import_user_list()
-		self.get_channels_user_list()
+		self.get_class_channels_user_list()
 
 	def import_user_list (self):
 		self.log(f'Importing data from: {self.data_path}')
@@ -490,20 +490,20 @@ class TeamsUpdater:
 
 		self.log(f'Imported data on {len(dataframe.index)} users (students: {count_students}, instructors: {count_instructors}, unknown: {count_unknown}).\n\n')
 
-	def get_channels_user_list (self):
+	# TODO work out return format (just a list isn't very useful? needs channel name at least)
+	# def get_channels_user_list (self, channels_list):
+	# 	for ch in channels_list:
+	# 		self.get_single_channel_user_list(ch.team_id, ch.name)
+
+	def get_class_channels_user_list (self):
 		# iterate over each relevant Class ID
 		for class_id in self.classes_list:
-			self.get_single_channel_user_list(class_id)
+			self.get_single_class_channel_user_list(class_id)
 
-	def get_single_channel_user_list (self, class_id):
-		cl = self.classes_list[class_id]
-
+	def get_single_channel_user_list (self, team_id, channel_name):
 		# get list of current users in channel
 		response = self.process.run_command(
-			'Get-TeamChannelUser -GroupId {TEAMS_GROUP_ID} -DisplayName "{CHANNEL_NAME}"'.format(
-				TEAMS_GROUP_ID = cl.teams_group_id,
-				CHANNEL_NAME   = cl.name
-			),
+			f'Get-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}"',
 			convert_json = True
 		)
 
@@ -512,17 +512,26 @@ class TeamsUpdater:
 		if (type(response) == 'str' and response.find('Channel not found') != -1):
 			return False
 		else:
-			# feed data into class list
+			# feed data into list
+			member_list = {}
+
 			for d in response:
-				userid = d['User '].lower().replace('@ad.unsw.edu.au','')  # 'User ' = accountname@domain
-				cl['teams_user_list'][userid] = User(
+				userid = d['User'].lower().replace('@ad.unsw.edu.au','')  # 'User ' = accountname@domain
+				member_list[userid] = User(
 					userid,    # zID
 					d['Name']  # name
 				)
 
-			print(f'USER LIST for {cl.name}')
-			for k in cl['teams_user_list']:
-				print(cl['teams_user_list'][k])
+			print(f'USER LIST for {channel_name}')
+			for u in member_list:
+				print(member_list[u])
+
+			return member_list
+
+	def get_single_class_channel_user_list (self, class_id):
+		cl = self.classes_list[class_id]
+
+		cl['teams_user_list'] = self.get_single_channel_user_list(cl.teams_group_id, cl.name)
 
 	def create_channels (self, channel_type='Private', owners=[]):
 		for class_id in self.classes_list:
@@ -630,7 +639,7 @@ class TeamsUpdater:
 
 		self.log(f'Updating all channels (totals: - {total_count_removed} / + {total_count_added})')
 
-	def update_single_channel (self, class_id):
+	def update_single_class_channel (self, class_id):
 		cl = self.classes_list[str(class_id)]
 		self.log(f"Updating class {cl} ({len(cl['desired_user_list'])} enrolments)")
 
