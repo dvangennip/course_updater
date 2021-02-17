@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 #####
-# script requires python version 3.7+ and powershell 7+ to be installed
+# script requires python version 3.7+, powershell 7+, and the PS Teams module to be installed
 # only tested on MacOS 10.15
 #
 # generally, this script is as resilient as a toddler with icecream in their hand
@@ -24,6 +24,7 @@ import keyring
 import json
 
 
+# for DESN2000
 # it it assumed Teams are already created and that students are auto-added to teams
 #	this script is only concerned with keeping private channels in sync with the Moodle list
 
@@ -31,7 +32,7 @@ import json
 #	could be done programmatically but channel name is likely hard to form without knowledge of timetable.
 #   timetable info can be fed in from classutil website but needs parsing.
 #   setting them up manually is very likely to be faster (including adding demonstrators, etc).
-#	generating the list below isn't too time intensive using regex on the classutil list.
+#	generating the class list below isn't too time intensive using regex on the classutil list.
 
 # -----------------------------------------------------------------------------
 
@@ -71,8 +72,11 @@ class User:
 		return ('Member', 'Owner')[self.owner]
 
 
-# very basic class that stores login data (handy for repeated use)
 class LoginData:
+	"""
+	very basic class that safely stores login data (handy for repeated use).
+	once login data is passed, there's no need to repeat it.
+	"""
 	def __init__ (self, username=None, password=None):
 		self.app_id = 'PY_TEAMS_UPDATER'
 
@@ -105,9 +109,9 @@ class LoginData:
 
 
 # -----------------------------------------------------------------------------
-# default input variables
+# default input variables (as examples only here)
 
-# Moodle-exported CSV file
+# path to Moodle-exported CSV file
 my_path = 'desn2000-engineering-design---professional-practice---2020-t3.csv'
 
 # have a list of classes (see for structure the ClassItem class below)
@@ -115,29 +119,31 @@ my_classes_list = [
 	ClassItem(1112,  'Demonstrators',  '458b02e9-dea0-4f74-8e09-93e95f93b473', 'DESN2000_2020T3_CVEN'),
 ]
 
-# have a whitelist of users not to be removed from channels (demonstrators, etc)
-#	these users typically will not feature in Moodle-based ClassID lists
-#	although such a whitelist is also generated/expanded from staff listed in Moodle
+"""
+have a whitelist of users not to be removed from channels (demonstrators, etc)
+these users typically will not feature in Moodle-based ClassID lists
+this list is also expanded with any staff found in a Moodle user file
+"""
 my_user_whitelist = []
 
 
 # -----------------------------------------------------------------------------
 
 
-###
-# this is what happens when you know python and think you'll just call
-# some powershell commands, only to realise when you're in knee-deep that
-# the login step requires the shell process to stay alive between calls
-# and now you have to tame powershell somehow, making you wonder if simply
-# learning powershell in the first place wouldn't have been a better bet
-#
-# handles powershell commands in the background, works kind of like the
-# pexpect library, only returning when it encounters the reappearing prompt
-# or another string in the output that we want to stop at.
-#
-# very simple, very likely to not work with most edge cases
-###
 class PowerShellWrapper:
+	"""
+	this is what happens when you know python and think you'll just call
+	some powershell commands, only to realise when you're in knee-deep that
+	the login step requires the shell process to stay alive between calls
+	and now you have to tame powershell somehow, making you wonder if simply
+	learning powershell in the first place wouldn't have been a better bet...
+	
+	handles powershell commands in the background, works kind of like the
+	`pexpect` library, only returning when it encounters the reappearing prompt
+	or another string in the output that we want to stop at.
+	
+	very simple, very likely not to work with most edge cases.
+	"""
 	def __init__ (self, debug=True):
 		self.latest_output      = ''
 		self.connected_to_teams = False
@@ -173,7 +179,7 @@ class PowerShellWrapper:
 		if (traceback is None):  # no exception occured
 			pass
 		else:
-			return False  # re-raise the exception to be transparent
+			return False  # re-raises the exception on return to be transparent
 
 	def close (self):
 		# disconnect and confirm any prompts that may come our way
@@ -187,6 +193,16 @@ class PowerShellWrapper:
 			self.log.close()
 
 	def run_command (self, command, do_run=True, delay=0.5, return_if_found=None, convert_json=False):
+		"""
+		The shakily beating heart of this wrapper.
+		It takes a command and feeds that into the powershell process, parsing any output it generates.
+
+		This method returns whenever it re-encounters the command prompt, usually the signal a command was processed.
+		Alternatively, passing a string to `return_if_found` will stop once that string is encountered in the process output.
+
+		Set `convert_json` to True when expecting output that needs parsing.
+		"""
+
 		self.count += 1
 
 		# check command and do final alterations
@@ -264,6 +280,13 @@ class PowerShellWrapper:
 		return output
 
 	def connect_to_teams (self, login_method='popup', username=None, password=None):
+		"""
+		Running any commands from the MicrosoftTeams pwoershell module requires an active login
+		This method logs in automatically, either by just giving a popup or by attempting a fully
+		automatic login by hiding the Office365 login process via a headless browser connection.
+
+		TODO: automated seems broken in some cases at the moment... still opens browser tab that works.
+		"""
 		if (self.connected_to_teams):
 			return True
 		else:
@@ -330,7 +353,7 @@ class PowerShellWrapper:
 					except Exception as e:
 						print(e)
 				elif (login_method == 'credentials'):
-					# note: this procedure doesn't work because basic authentication doesn't support the right sign-on protocols
+					# note: this procedure doesn't work because basic authentication uni tenant doesn't support the right sign-on protocols
 					#       would be cool though...
 
 					# get login details
@@ -363,11 +386,14 @@ class PowerShellWrapper:
 			return False
 
 
-###
-# Wrapper around powershell teams commands, with additional logic to help with
-# generating channels and keeping users in sync with an external file.
-###
 class TeamsUpdater:
+	"""
+	Wrapper around powershell teams commands, with additional logic to help with
+	generating channels and keeping users in sync with an external file.
+
+	Was cobbled together for one goal; syncing users to channels based on a clear Class ID-channel connection.
+	Everything else was tacked on around it, so things are a little inconsistent.
+	"""
 	def __init__ (self, path=None, classes={}, whitelist={}, process=None):
 		# open log file
 		self.log_file = open('teams_updater.log', 'a')
@@ -392,18 +418,18 @@ class TeamsUpdater:
 		for cl in classes:
 			self.classes_list[str(cl.id)] = cl
 
-		# use external process to connect to powershell or create new one
+		# use existing external process to connect to powershell or create new one
 		if (process is not None):
 			self.process = process
 		else:
 			self.process = PowerShellWrapper()
 	
-	# so we can use the with statement
 	def __enter__ (self):
+		""" enables the use of the `with` statement (`with TeamsUpdater() as tu:`) """
 		return self
 
-	# so we can exit after using the with statement
 	def __exit__ (self, type, value, traceback):
+		""" so we can exit after using the `with` statement """
 		self.close()
 
 		if (traceback is None):  # no exception occured
@@ -416,16 +442,26 @@ class TeamsUpdater:
 		self.connected = self.process.connect_to_teams(login_method=login_method, username=username, password=password)
 
 	def close (self):
-		# cleanup any open connections, files open
+		"""
+		cleanup any open connections, files open
+		"""
 		if (self.process is not None):
 			self.process.close()
 		self.log_file.close()
 
 	def get_all_data (self):
+		"""
+		convenience function for the extra-lazy
+		"""
 		self.import_user_list()
 		self.get_class_channels_user_list()
 
 	def import_user_list (self):
+		"""
+		Imports a user list csv file that was exported from Moodle
+
+		TODO: parse groups as well, not just Class IDs
+		"""
 		self.log(f'Importing data from: {self.data_path}')
 
 		unknown_class_ids = []
@@ -490,18 +526,20 @@ class TeamsUpdater:
 
 		self.log(f'Imported data on {len(dataframe.index)} users (students: {count_students}, instructors: {count_instructors}, unknown: {count_unknown}).\n\n')
 
-	# TODO work out return format (just a list isn't very useful? needs channel name at least)
-	# def get_channels_user_list (self, channels_list):
-	# 	for ch in channels_list:
-	# 		self.get_single_channel_user_list(ch.team_id, ch.name)
+	def get_channels_user_list (self, channels_list):
+		""" TODO untested """
+		channels_user_lists = {}
+		for ch in channels_list:
+			channels_user_lists[ch.name] = self.get_channel_user_list(ch.team_id, ch.name)
+		return channels_user_lists
 
 	def get_class_channels_user_list (self):
-		# iterate over each relevant Class ID
+		""" iterate over each relevant Class ID and feed into existing data structure """
 		for class_id in self.classes_list:
-			self.get_single_class_channel_user_list(class_id)
+			self.get_class_channel_user_list(class_id)
 
-	def get_single_channel_user_list (self, team_id, channel_name):
-		# get list of current users in channel
+	def get_channel_user_list (self, team_id, channel_name):
+		""" get list of current users in channel, and return a dict with user ids as the keys """
 		response = self.process.run_command(
 			f'Get-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}"',
 			convert_json = True
@@ -528,16 +566,16 @@ class TeamsUpdater:
 
 			return member_list
 
-	def get_single_class_channel_user_list (self, class_id):
+	def get_class_channel_user_list (self, class_id):
 		cl = self.classes_list[class_id]
 
-		cl['teams_user_list'] = self.get_single_channel_user_list(cl.teams_group_id, cl.name)
+		cl['teams_user_list'] = self.get_channel_user_list(cl.teams_group_id, cl.name)
 
-	def create_channels (self, channel_type='Private', owners=[]):
+	def create_class_channels (self, channel_type='Private', owners=[]):
 		for class_id in self.classes_list:
-			self.create_single_channel(class_id, channel_type, owners)
+			self.create_channel(class_id, channel_type, owners)
 
-	def create_single_channel (self, class_id, channel_type='Private', owners=[]):
+	def create_class_channel (self, class_id, channel_type='Private', owners=[]):
 		cl = self.classes_list[class_id]
 
 		# create channel
@@ -559,8 +597,8 @@ class TeamsUpdater:
 		for o in owners:
 			self.add_user_to_class_channel(class_id, user=o, role='Owner')
 
-	# convenience function to add a single user to all channels at once
 	def add_user_to_all_class_channels (self, user=User, role='Member', course_list=[]):
+		""" convenience function to add a single user to all channels at once """
 		for class_id in self.classes_list:
 			cl  = self.classes_list[class_id]
 
@@ -570,16 +608,21 @@ class TeamsUpdater:
 
 			self.add_user_to_class_channel(cl.id, user, role)
 
-	# TODO deprecate this function
 	def add_user_to_class_channel (self, class_id, user=User, role='Member'):
+		""" # TODO deprecate this function """
 		cl           = self.classes_list[str(class_id)]
 		team_id      = cl['teams_group_id']
 		channel_name = cl['name']
 
 		return self.add_user_to_channel(team_id, channel_name, user, role)
 
+	def add_users_to_channel (self, team_id, channel_name, users=[User], role='Member'):
+		""" convenience function to add a list of users to a channel """
+		for user in users:
+			self.add_user_to_channel(team_id, channel_name, user, role)
+
 	def add_user_to_channel (self, team_id, channel_name, user=User, role='Member'):
-		# add to relevant channel
+		""" add user to channel """
 		response = self.process.run_command(
 			f'Add-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}" -User {user.id}@ad.unsw.edu.au'
 		)
@@ -600,11 +643,10 @@ class TeamsUpdater:
 
 		return success
 
-
 	def remove_user_from_class_channel (self, class_id, user=User, role='Member'):
 		cl = self.classes_list[str(class_id)]
 
-		# add to relevant channel
+		# remove from to relevant channel
 		response = self.process.run_command(
 			'Remove-TeamChannelUser -GroupId {TEAMS_GROUP_ID} -DisplayName "{CHANNEL_NAME}" -User {USER}'.format(
 				TEAMS_GROUP_ID = cl['teams_group_id'],
@@ -613,7 +655,7 @@ class TeamsUpdater:
 			)
 		)
 
-		# TODO parse response
+		# TODO parse response (as json will be easier)
 		# Remove-TeamChannelUser: Error occurred while executing 
 		# Code: NotFound
 		# Message: Not Found
@@ -627,19 +669,19 @@ class TeamsUpdater:
 
 		return success
 
-	def update_channels (self):
+	def update_class_channels (self):
 		total_count_removed = 0
 		total_count_added   = 0
 
 		for class_id in self.classes_list:
-			(r, a) = self.update_single_channel(class_id)
+			(r, a) = self.update_class_channel(class_id)
 
 			total_count_removed += r
 			total_count_added   += a
 
 		self.log(f'Updating all channels (totals: - {total_count_removed} / + {total_count_added})')
 
-	def update_single_class_channel (self, class_id):
+	def update_class_channel (self, class_id):
 		cl = self.classes_list[str(class_id)]
 		self.log(f"Updating class {cl} ({len(cl['desired_user_list'])} enrolments)")
 
@@ -667,20 +709,23 @@ class TeamsUpdater:
 
 		return (count_removed, count_added)
 
-	# see: https://docs.microsoft.com/en-us/powershell/module/teams/new-team?view=teams-ps
-	# info parameter isn't required for anything but may be useful to parse the logs and keep team data and other info together.
 	def create_team (self, name, description='', visibility='Private', owners=[], info=''):
+		"""
+		Create a new Team. Connected account will become an owner automatically.
+
+		see: https://docs.microsoft.com/en-us/powershell/module/teams/new-team?view=teams-ps
+		info parameter isn't used/required for anything but may be useful to parse the logs and keep team data and other info together.
+		"""
 		
 		# TODO improve this by using convert_json = True to get team object in one go
 		# create team
 		response = self.process.run_command(
 			f'$group = New-Team -DisplayName "{name}" -Description "{description}" -Visibility {visibility}'
 		)
-		# parse response (returns a Group object with GroupID for the newly created team)
+		# parse response in 2nd step (returns a Group object with GroupID for the newly created team)
 		response_group_id = self.process.run_command('$group.GroupId')
-
 		
-		# check for group_id format: 458b02e9-dea0-4f74-8e09-93e95f93b473
+		# check for correct group_id format: 458b02e9-dea0-4f74-8e09-93e95f93b473
 		if (not re.match('^[\dabcdef-]{36}$', response_group_id)):
 			self.log(f'Failed to create {visibility.lower()} team {name} (response: {response_group_id}) ({info=})', 'ERROR')
 		else:
@@ -688,9 +733,11 @@ class TeamsUpdater:
 
 			self.add_users_to_team(response_group_id, owners, 'Owner')
 
-	def get_single_team_user_list (self, team_id, role='Member'):
-		# get list of current users in team
-		# TODO handle the optional role parameter as filter
+	def get_team_user_list (self, team_id, role='Member'):
+		"""
+		get list of current users in team
+		TODO handle the optional role parameter as filter
+		"""
 		response = self.process.run_command(
 			f'Get-TeamUser -GroupId {team_id}',
 			convert_json = True
@@ -717,16 +764,17 @@ class TeamsUpdater:
 
 			return user_list
 
-	def update_single_team (self, team_id, team_user_list, desired_user_list):
-		# TODO
+	def update_team (self, team_id, team_user_list, desired_user_list):
+		""" TODO add/remove users to match the `desired_user_list` """
 		print('ERROR: Not implemented yet')
 
 	def remove_users_from_team (self, team_id, users=[User], role='Member'):
+		""" coonvenience function to remove a list of users in one go """
 		for u in users:
 			self.remove_user_from_team(team_id, u, role)
 
 	def remove_user_from_team (self, team_id, user=User, role='Member'):
-		# removing a user as role='Owner' keeps them as a team member
+		""" removing a user as role='Owner' keeps them as a team member """
 		response = self.process.run_command(
 			f'Remove-TeamUser -GroupId {team_id} -User {user.id}@ad.unsw.edu.au -Role {role}'
 		)
@@ -734,11 +782,12 @@ class TeamsUpdater:
 		self.log(f'Team {team_id}: Removed {user} as {role}')
 
 	def add_users_to_team (self, team_id, users=[User], role='Member'):
+		""" coonvenience function to add a list of users in one go """
 		for u in users:
 			self.add_user_to_team(team_id, u, role)
 
 	def add_user_to_team (self, team_id, user=User, role='Member'):
-		# adding an owner, if new, also means the user is added as a member to that team
+		""" Adds a user to the team. Add an existing member as an `Owner` to elevate their role. """
 		response = self.process.run_command(
 			f'Add-TeamUser -GroupId {team_id} -User {user.id}@ad.unsw.edu.au -Role {role}'
 		)
@@ -746,27 +795,12 @@ class TeamsUpdater:
 		self.log(f'Team {team_id}: Added {user} as {role}')
 
 	def add_tab_to_channel (self, teams_group_id, channel_name, tab_info):
+		""" TODO nice to have, not super useful """
 		self.log('You cannot add tabs to channels yet...','ERROR')
-		
-		# no cmdlet available yet for Module MicrosoftTeams, but sharepoint-pnp has one 
-		#   Install-Module SharePointPnPPowerShellOnline
-		#   now, login with devicelogin and provide sharepoint site url (e.g., https://unsw.sharepoint.com/sites/DesignNext2)
-		#   note that this login only works for one team/sharepoint site at a time :(
-		#   Connect-PnPOnline -PnPO365ManagementShell
-		#   also needs admin permissions beyond what a regular user has :(
-		#   so best to wait until its supported in the Teams module
-		response = self.process.run_command(
-			'Add-PnPTeamsTab -Team {TEAMS_GROUP_ID} -Channel "{CHANNEL_NAME}" -DisplayName "{TAB_NAME}" -Type {TAB_TYPE} -ContentUrl "{CONTENT_URL}"'.format(
-				TEAMS_GROUP_ID = teams_group_id,
-				CHANNEL_NAME   = channel_name,
-				TAB_NAME       = tab_info['name'],
-				TAB_TYPE       = tab_info['type'],
-				CONTENT_URL    = tab_info['url']
-			)
-		)
 
-	# convenience function to find particular users
 	def find_users (self, list_to_search, search_key, search_value):
+		""" convenience function to find users in a list """
+		# TODO make it easier to access the default user lists
 		results = []
 
 		# check if list is actually a dict, and if so convert
@@ -804,6 +838,10 @@ class MoodleUpdater:
 		self.login(username, password)
 
 	def login (self, username, password):
+		"""
+		logs in to single-sign on for Moodle (thus with Office 365 credentials)
+		usually doesn't fail, so that's quite nice
+		"""
 		print('INFO: Logging in to Moodle...')
 		
 		# use a custom profile to avoid download popup
@@ -845,15 +883,15 @@ class MoodleUpdater:
 		return False
 
 	def close (self):
-		# don't need the browser anymore
+		""" quit the browser so  it cleans up properly """
 		self.browser.quit()
 
-	# so we can use the with statement
 	def __enter__ (self):
+		""" enables the use of the `with` statement """
 		return self
 
-	# so we can exit after using the with statement
 	def __exit__ (self, type, value, traceback):
+		""" so we can exit after using the `with` statement """
 		self.close()
 
 		if (traceback is None):  # no exception occured
@@ -862,6 +900,12 @@ class MoodleUpdater:
 			return False  # re-raise the exception to be transparent
 
 	def get_users_csv (self):
+		"""
+		Downloads the user list as csv export from Moodle
+
+		Note that Moodle sets the filename and this script's browser instance can't control that.
+		It also doesn't indicate when a download may have completed, so this requires manual confirmation.
+		"""
 		print('INFO: Getting user data CSV file from Moodle...')
 	
 		# get all users on one page
@@ -916,6 +960,7 @@ class MoodleUpdater:
 				return filename
 
 	def get_grades_csv (self):
+		""" TODO not sure if I ever used/tested this """
 		print('INFO: Getting grades data CSV file from Moodle...')
 		
 		# go to grades download page (and just get all grades)
@@ -944,6 +989,12 @@ class MoodleUpdater:
 		# shutil.move(os.path.join(dirpath,filename),newfilename)
 
 	def auto_create_groups (self, group_by_type='classid', grouping_id=None):
+		"""
+		Automates the auto-creation interface on Moodle
+
+		`grouping_id` has to be fished out from the HTML, there might be a better way of setting that selection box
+		(self.browser.select(selection_box_element, desired_option) is the way to go)
+		"""
 		print(f'INFO: Auto-creating groups by {group_by_type}...')
 		
 		# go straight to the auto-create groups page for the course
@@ -971,8 +1022,10 @@ class MoodleUpdater:
 
 		print('INFO: Auto-creating groups complete.')
 
-	# EXPERIMENTAL - completely untested
 	def add_gradebook_category (self, category_info={}):
+		"""
+		Ruin the gradebook by running this completely untested *ahem* experimental method
+		"""
 		# go straight to add/edit gradebook category page
 		self.browser.visit(f'https://moodle.telt.unsw.edu.au/grade/edit/tree/category.php?courseid={self.course_id}')
 
@@ -1044,8 +1097,8 @@ class MoodleUpdater:
 
 				time.sleep(5)
 
-	# TODO
 	def add_section (self, section_info={}):
+		""" Add a section to Moodle (note: completely untested) """
 		# go to course main page and enable editing
 		self.browser.visit(f'https://moodle.telt.unsw.edu.au/course/view.php?id={self.course_id}&notifyeditingon=1')
 
@@ -1073,11 +1126,20 @@ class MoodleUpdater:
 		#TODO
 		time.sleep(20)
 
+	def add_project (self, project_info={}):
+		""" convenience function that adds sections and gradebook categories for a project within the course """
+		# TODO put in effort to enable me to be super-lazy next time :)
+		pass
+
 
 # -----------------------------------------------------------------------------
 
 
 if __name__ == '__main__':
+	"""
+	This is a default use case
+	Best practice is to create a new script file, import this one and make it work for your use case.
+	"""
 	login = LoginData()
 
 	# with MoodleUpdater(54605, login.username, login.password) as mu:
@@ -1086,7 +1148,7 @@ if __name__ == '__main__':
 	# basic operation by default
 	with TeamsUpdater(my_path, my_classes_list, my_user_whitelist) as tu:
 		# connect at the start - everything else depends on this working
-		# tu.connect('automated', login.username, login.password)
+		tu.connect('automated', login.username, login.password)
 		
 		# import data first - later steps build on this
 		tu.import_user_list()
