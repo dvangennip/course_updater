@@ -11,7 +11,7 @@
 from dataclasses import dataclass, field
 # from typing import Dict
 
-import pandas
+import csv
 from datetime import datetime
 import subprocess
 import time
@@ -25,13 +25,13 @@ import json
 
 
 # for DESN2000
-# it it assumed Teams are already created and that students are auto-added to teams
-#	this script is only concerned with keeping private channels in sync with the Moodle list
+# it it assumed Teams are already created and that students are auto-added to teams via Central IT sync
+#	originally, this script was only concerned with keeping private channels in sync with the Moodle list
 
 # make sure that for each tutorial-like ClassItem, there is a corresponding private channel
 #	could be done programmatically but channel name is likely hard to form without knowledge of timetable.
 #   timetable info can be fed in from classutil website but needs parsing.
-#   setting them up manually is very likely to be faster (including adding demonstrators, etc).
+#   setting them up manually is very likely to be faster (including adding demonstrators, if that list is short).
 #	generating the class list below isn't too time intensive using regex on the classutil list.
 
 # -----------------------------------------------------------------------------
@@ -57,10 +57,13 @@ class ClassItem:
 
 @dataclass
 class User:
-	id    : str
-	name  : str
-	owner : bool = False  # 'Member'|'Owner'
-	course: str  = ''
+	id       : str
+	name     : str
+	class_ids: []
+	groups   : []
+	owner    : bool = False  # 'Member'|'Owner'
+	course   : str  = ''
+	email    : str  = ''
 
 	def __getitem__ (self, key):
 		return getattr(self, key)
@@ -70,6 +73,12 @@ class User:
 
 	def role (self):
 		return ('Member', 'Owner')[self.owner]
+
+	def in_class (self, class_id):
+		return (class_id in self.class_ids)
+
+	def in_group (self, group):
+		return (group in self.groups)
 
 
 class LoginData:
@@ -111,10 +120,10 @@ class LoginData:
 # -----------------------------------------------------------------------------
 # default input variables (as examples only here)
 
-# path to Moodle-exported CSV file
+""" path to Moodle-exported CSV file """
 my_path = 'desn2000-engineering-design---professional-practice---2020-t3.csv'
 
-# have a list of classes (see for structure the ClassItem class below)
+""" have a list of classes (see for structure the ClassItem class below) """
 my_classes_list = [
 	ClassItem(1112,  'Demonstrators',  '458b02e9-dea0-4f74-8e09-93e95f93b473', 'DESN2000_2020T3_CVEN'),
 ]
@@ -267,7 +276,9 @@ class PowerShellWrapper:
 			output = output.replace('\n','')
 		
 		if (convert_json):
-			output = json.loads(output)
+			if (len(output) > 0 and output.lower().find('error occurred while executing') == -1):
+				output = json.loads(output)
+			# else just keep output unconverted
 
 		self.latest_output = output
 
@@ -388,11 +399,7 @@ class PowerShellWrapper:
 
 class TeamsUpdater:
 	"""
-	Wrapper around powershell teams commands, with additional logic to help with
-	generating channels and keeping users in sync with an external file.
-
-	Was cobbled together for one goal; syncing users to channels based on a clear Class ID-channel connection.
-	Everything else was tacked on around it, so things are a little inconsistent.
+	Wrapper around powershell teams commands, with additional logic to keep teams and channels in sync with an external list.
 	"""
 	def __init__ (self, path=None, classes={}, whitelist={}, process=None):
 		# open log file
@@ -408,12 +415,15 @@ class TeamsUpdater:
 		# create whitelist from input list
 		# note that the list isn't technically a list but rather a dictionary
 		# dicts have the benefit that we can match by id/key value rightaway
-		# not optimal from a memory/neatness point of view but it's the lazy approach and works fine
+		# not optimal from a neatness point of view but it works fine
 		self.user_whitelist  = {}
 		for name in whitelist:
 			self.user_whitelist[str(name.id)] = name
 
-		# idem, a dict not a list
+		# master user list (idem, a dict not a list)
+		self.user_list       = {}
+
+		# TODO DEPRECATE legacy classes list
 		self.classes_list    = {}
 		for cl in classes:
 			self.classes_list[str(cl.id)] = cl
@@ -438,7 +448,7 @@ class TeamsUpdater:
 			return False  # re-raise the exception to be transparent
 	
 	def connect (self, login_method='default', username=None, password=None):
-		# get connected early -> this way later commands that require a connection won't fail
+		""" most commands require an authenticated session, so connect early to avoid later failures """
 		self.connected = self.process.connect_to_teams(login_method=login_method, username=username, password=password)
 
 	def close (self):
@@ -449,265 +459,211 @@ class TeamsUpdater:
 			self.process.close()
 		self.log_file.close()
 
-	def get_all_data (self):
-		"""
-		convenience function for the extra-lazy
-		"""
-		self.import_user_list()
-		self.get_class_channels_user_list()
-
 	def import_user_list (self):
 		"""
 		Imports a user list csv file that was exported from Moodle
-
-		TODO: parse groups as well, not just Class IDs
 		"""
 		self.log(f'Importing data from: {self.data_path}')
 
 		unknown_class_ids = []
 
+		count_total       = 0
 		count_instructors = 0
 		count_students    = 0
 		count_unknown     = 0
 		
-		# open and read CSV file - assumes existence of columns named Username (for zID), First Name, Surname
-		dataframe = pandas.read_csv(self.data_path)
-		
-		# for every user, add them to the known class lists
-		#	when complete, this gives a complete view of users in each class
-		for index, user in dataframe.iterrows():
-			user_id = user['Username'].lower()  # make sure it's all lowercase, for later comparisons
+		# open and read CSV file - assumes existence of columns named Username (for zID), First Name, Surname, and a few more
+		with open(self.data_path) as fs:
+			filereader = csv.DictReader(fs)
 
-			new_user = User(
-				user_id,
-				user['First name'] + ' ' + user['Surname']
-			)
+			# for every user (a row in csv file), add them to the known class lists
+			for user in filereader:
+				user_id = user['Username'].lower()  # make sure it's all lowercase, for later comparisons
 
-			# users without classes assigned get added to the whitelist
-			# in Moodle, more or less by definition, no ClassID -> staff
-			if (user['Class ID'] == '-'):
-				# do another check to make sure this user is actually staff
-				#   adding a user to this group requires manual assignment in Moodle
-				#   as an alternative, you can add them into the user whitelist passed in at the start
-				if (isinstance(user['Group1'], str) and user['Group1'].lower().find('staff') != -1):
-					new_user.owner = True
+				# parse class IDs and convert comma-separated field to a list of int values
+				class_ids = []
+				if (user['Class ID'] != '-'):
+					class_ids = list(map(int, user['Class ID'].split(',')))
 
-					# don't overwrite prior whitelist user data
-					if (user_id not in self.user_whitelist.keys()):
-						self.user_whitelist[user_id] = new_user
+				# parse groups
+				user_groups = []
+				for n in range(1,50):
+					g = user[f'Group{n}']
+					# empty values are represented as float(nan) but we only care about strings anyway, so just test for that
+					if (g is not None and type(g) is str and len(g) > 0):
+						user_groups.append(g)
 
-					count_instructors += 1
-				else:
-					self.log(f'User {new_user} has no Class IDs but is not a staff member: skipped.', 'WARNING')
-					count_unknown += 1
-			else:
-				# field is comma-separated, so undo this first
-				class_ids = user['Class ID'].split(',')
-
-				# now, iterate over the found class IDs and add the user to its list
-				for class_id in class_ids:
-					if (class_id in self.classes_list.keys()):
-						# overwrite, likely 
-						self.classes_list[class_id]['desired_user_list'][user_id] = new_user
-					else:
-						# add class_id to list of unknown classes - useful feedback in case a class is missing by accident
-						if (class_id not in unknown_class_ids):
-							unknown_class_ids.append(class_id)
-						else:
-							pass  # ignore any later encounters
-
-				count_students += 1
-
-		# sort the unknown class ids from low to high (requires intermediate conversion to int)
-		unknown_class_ids = list(map(int, unknown_class_ids))
-		unknown_class_ids.sort()
-		unknown_class_ids = list(map(str, unknown_class_ids))
-		self.log(f'No class items that match Class IDs {", ".join(unknown_class_ids)}')
-
-		self.log(f'Imported data on {len(dataframe.index)} users (students: {count_students}, instructors: {count_instructors}, unknown: {count_unknown}).\n\n')
-
-	def get_channels_user_list (self, channels_list):
-		""" TODO untested """
-		channels_user_lists = {}
-		for ch in channels_list:
-			channels_user_lists[ch.name] = self.get_channel_user_list(ch.team_id, ch.name)
-		return channels_user_lists
-
-	def get_class_channels_user_list (self):
-		""" iterate over each relevant Class ID and feed into existing data structure """
-		for class_id in self.classes_list:
-			self.get_class_channel_user_list(class_id)
-
-	def get_channel_user_list (self, team_id, channel_name):
-		""" get list of current users in channel, and return a dict with user ids as the keys """
-		response = self.process.run_command(
-			f'Get-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}"',
-			convert_json = True
-		)
-
-		# parse response
-		# if channel not found, stop
-		if (type(response) == 'str' and response.find('Channel not found') != -1):
-			return False
-		else:
-			# feed data into list
-			member_list = {}
-
-			for d in response:
-				userid = d['User'].lower().replace('@ad.unsw.edu.au','')  # 'User ' = accountname@domain
-				member_list[userid] = User(
-					userid,    # zID
-					d['Name']  # name
+				new_user = User(
+					user_id,
+					user['First name'] + ' ' + user['Surname'],
+					class_ids,
+					user_groups
 				)
+				# TODO integrate into above
+				new_user.email = user['Email address']
 
-			print(f'USER LIST for {channel_name}')
-			for u in member_list:
-				print(member_list[u])
+				# users without classes assigned get added to the whitelist
+				# in Moodle, more or less by definition, no ClassID -> staff
+				if (user['Class ID'] == '-'):
+					# do another check to make sure this user is actually staff
+					#   adding a user to this group requires manual assignment in Moodle
+					#   as an alternative, you can add them into the user whitelist passed in at the start
+					if (new_user.in_group('Staff (DO NOT REMOVE)')):
+						new_user.owner = True
 
-			return member_list
+						# don't overwrite prior whitelist user data
+						if (user_id not in self.user_whitelist.keys()):
+							self.user_whitelist[user_id] = new_user
 
-	def get_class_channel_user_list (self, class_id):
-		cl = self.classes_list[class_id]
+						count_instructors += 1
+					else:
+						self.log(f'User {new_user} has no Class IDs but is not a staff member: skipped.', 'WARNING')
+						count_unknown += 1
+				else:
+					# add new to master list
+					self.user_list[user_id] = new_user
 
-		cl['teams_user_list'] = self.get_channel_user_list(cl.teams_group_id, cl.name)
+					# TODO DEPRECATE now, iterate over the found class IDs and add the user to its list
+					for class_id in class_ids:
+						if (str(class_id) in self.classes_list.keys()):
+							# overwrite, likely 
+							self.classes_list[str(class_id)]['desired_user_list'][user_id] = new_user
+						else:
+							# add class_id to list of unknown classes - useful feedback in case a class is missing by accident
+							if (class_id not in unknown_class_ids):
+								unknown_class_ids.append(class_id)
+							else:
+								pass  # ignore any later encounters
 
-	def create_class_channels (self, channel_type='Private', owners=[]):
-		for class_id in self.classes_list:
-			self.create_channel(class_id, channel_type, owners)
+					count_students += 1
 
-	def create_class_channel (self, class_id, channel_type='Private', owners=[]):
-		cl = self.classes_list[class_id]
+		# sort the unknown class ids from low to high for readability
+		unknown_class_ids.sort()
+		self.log(f'No class items that match Class IDs {", ".join(map(str, unknown_class_ids))}')
 
-		# create channel
-		response = self.process.run_command(
-			'New-TeamChannel -GroupId {TEAMS_GROUP_ID} -DisplayName "{CHANNEL_NAME}" -MembershipType {TYPE}'.format(
-				TEAMS_GROUP_ID = cl.teams_group_id,
-				CHANNEL_NAME   = cl.name,
-				TYPE           = channel_type
-				# OWNER          = owners[0]  # -Owner {OWNER} can't work with public channels, defaults to connected user otherwise
-			)
-		)
+		count_total = count_students + count_instructors + count_unknown
+		self.log(f'Imported data on {count_total} users (students: {count_students}, instructors: {count_instructors}, unknown: {count_unknown}).\n\n')
 
-		# TODO parse response
-		# if (response.find(''))
+	def export_student_list (self, project_list, tech_stream_list=None):
+		""" Exports a list of students with project (and optional tech stream) information """
 
-		self.log(f'Created channel for class {cl}')
+		# assume course code is first thing in path, for example: engg1000-title-2021-t1.csv
+		course = self.data_path[:self.data_path.find('-')]
+		
+		output_path = self.data_path.replace('.csv', '-students.csv')
 
-		# if all good, set owners
-		for o in owners:
-			self.add_user_to_class_channel(class_id, user=o, role='Owner')
+		with open(output_path, 'w') as f:
+			# header
+			f.write('Student zID,Student name,Email address,Class IDs,Course,Course coordinator,Course coordinator zID,Course coordinator email,Project,Project coordinator,Project coordinator zID,Project coordinator email,Project mentor,Project mentor zID,Tech stream,Tech stream coordinator,Tech stream coordinator zID,Tech stream coordinator email,Tech stream mentor,Tech stream mentor zID')
+			
+			for sid in self.user_list:
+				s = self.user_list[sid]
 
-	def add_user_to_all_class_channels (self, user=User, role='Member', course_list=[]):
-		""" convenience function to add a single user to all channels at once """
-		for class_id in self.classes_list:
-			cl  = self.classes_list[class_id]
+				# avoid including staff (who have no class ids)
+				if (len(s.class_ids) == 0):
+					continue
 
-			# check if we exclude courses
-			if (len(course_list) > 0 and cl.course not in course_list):
-				continue  # skip this iteration and move on
+				# TODO generalise this info
+				ccoordinator    = 'Ilpo Koskinen, Nick Gilmore, Domenique van Gennip'
+				ccoordinator_id = 'z3526743,z3418878,z3530763'
+				ccoordinator_em = 'designnext@unsw.edu.au'
 
-			self.add_user_to_class_channel(cl.id, user, role)
+				project         = '-'
+				pcoordinator    = '-'
+				pcoordinator_id = '-'
+				pcoordinator_em = '-'
 
-	def add_user_to_class_channel (self, class_id, user=User, role='Member'):
-		""" # TODO deprecate this function """
-		cl           = self.classes_list[str(class_id)]
-		team_id      = cl['teams_group_id']
-		channel_name = cl['name']
+				pmentor         = '-'
+				pmentor_id      = '-'
+				pmentor_em      = '-'
 
-		return self.add_user_to_channel(team_id, channel_name, user, role)
+				tech_stream     = '-'
+				tcoordinator    = '-'
+				tcoordinator_id = '-'
+				tcoordinator_em = '-'
 
-	def add_users_to_channel (self, team_id, channel_name, users=[User], role='Member'):
-		""" convenience function to add a list of users to a channel """
-		for user in users:
-			self.add_user_to_channel(team_id, channel_name, user, role)
+				tmentor         = '-'
+				tmentor_id      = '-'
+				tmentor_em      = '-'
 
-	def add_user_to_channel (self, team_id, channel_name, user=User, role='Member'):
-		""" add user to channel """
-		response = self.process.run_command(
-			f'Add-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}" -User {user.id}@ad.unsw.edu.au'
-		)
+				for g in s.groups:
+					if (g.find('Project Group - ') != -1):
+						project = re.sub(
+							r'Project Group - (?P<project>.+?) \(.+?\)',  # original
+							r'\g<project>',  # replacement
+							g  # source string
+						)
 
-		# owners needs to be added as regular members first, then set to owner status
-		if (response.find('User is not found in the team.') == -1 and role == 'Owner'):
-			response = self.process.run_command(
-				f'Add-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}" -User {user.id}@ad.unsw.edu.au -Role {role}'
-			)
+					# TODO generalise term 'Mentor' or allow 'Demonstrator' as well
+					if (g.find('Project') != -1 and g.find('Mentor') != -1):
+						pmentor = re.sub(
+							r'Project (?P<project>.+?) (- ){0,1}Mentor (?P<mentor>.+?)',
+							r'\g<mentor>',
+							g
+						)
+						# funky whitespaces can throw us further down
+						pmentor = pmentor.replace(' ', ' ')  # these two 'whitespaces' are not the same...
 
-		# parse response
-		success = True
-		if (response.find('User is not found in the team.') != -1 or response.find('Could not find member.') != -1):
-			success = False
-			self.log(f'Channel {channel_name}: Could not add {user} as {role}', 'ERROR')
-		else:
-			self.log(f'Channel {channel_name}: Added {user} as {role}')
+						# find ID based on name
+						for su in self.user_whitelist:
+							mu = self.user_whitelist[su]
 
-		return success
+							# match against lower case to avoid minor spelling issues to cause mismatches
+							if (mu.name.lower() == pmentor.lower()):
+								pmentor_id = mu.id
+								pmentor_em = mu.email
 
-	def remove_user_from_class_channel (self, class_id, user=User, role='Member'):
-		cl = self.classes_list[str(class_id)]
+					if (tech_stream_list is not None):
+						if (g.find('Technical Stream Group - ') != -1):
+							tech_stream = g.replace('Technical Stream Group - ','').replace(' (OnCampus)','').replace(' (Online)','')
 
-		# remove from to relevant channel
-		response = self.process.run_command(
-			'Remove-TeamChannelUser -GroupId {TEAMS_GROUP_ID} -DisplayName "{CHANNEL_NAME}" -User {USER}'.format(
-				TEAMS_GROUP_ID = cl['teams_group_id'],
-				CHANNEL_NAME   = cl['name'],
-				USER           = f'{user.id}@ad.unsw.edu.au'
-			)
-		)
+						if (g.find('Technical Stream') != -1 and g.find('Mentor') != -1):
+							tmentor = re.sub(
+								r'Technical Stream (?P<stream>.+?) (- ){0,1}Mentor (?P<mentor>.+?)',
+								r'\g<mentor>',
+								g
+							)
+							# funky whitespaces can throw us further down
+							tmentor = tmentor.replace(' ', ' ')  # these two 'whitespaces' are not the same...
 
-		# TODO parse response (as json will be easier)
-		# Remove-TeamChannelUser: Error occurred while executing 
-		# Code: NotFound
-		# Message: Not Found
-		# InnerError:
-		# RequestId: 55982b3c-1319-4614-97bf-68e67ea94f90
-		# DateTimeStamp: 2020-09-19T23:46:30
-		# HttpStatusCode: NotFound
-		success = True
+							# find ID based on name
+							if (tmentor != '-'):
+								for su in self.user_whitelist:
+									mu = self.user_whitelist[su]
 
-		self.log(f'Class {cl}: Removed {user} as {role}')
+									# match against lower case to avoid minor spelling issues to cause mismatches
+									if (mu.name.lower() == tmentor.lower()):
+										tmentor_id = mu.id
+										tmentor_em = mu.email
 
-		return success
+				if (project != '-'):
+					pcoordinator_id = project_list[project]['coordinator']
+					pids = pcoordinator_id.split(',')
 
-	def update_class_channels (self):
-		total_count_removed = 0
-		total_count_added   = 0
+					for index, pid in enumerate(pids):
+						pcoordinator    += ', ' + self.user_whitelist[pid].name
+						pcoordinator_em += ', ' + self.user_whitelist[pid].email
 
-		for class_id in self.classes_list:
-			(r, a) = self.update_class_channel(class_id)
+						if (index == 0):
+							pcoordinator    = pcoordinator.replace('-, ','')
+							pcoordinator_em = pcoordinator_em.replace('-, ','')
 
-			total_count_removed += r
-			total_count_added   += a
+				if (tech_stream_list is not None and tech_stream != '-'):
+					tcoordinator_id = tech_stream_list[tech_stream]['coordinator']
+					tids = tcoordinator_id.split(',')
 
-		self.log(f'Updating all channels (totals: - {total_count_removed} / + {total_count_added})')
+					for index, tid in enumerate(tids):
+						tcoordinator    += ', ' + self.user_whitelist[tid].name
+						tcoordinator_em += ', ' + self.user_whitelist[tid].email
 
-	def update_class_channel (self, class_id):
-		cl = self.classes_list[str(class_id)]
-		self.log(f"Updating class {cl} ({len(cl['desired_user_list'])} enrolments)")
+						if (index == 0):
+							tcoordinator    = tcoordinator.replace('-, ','')
+							tcoordinator_em = tcoordinator_em.replace('-, ','')
 
-		count_removed = 0
-		count_added   = 0
+				f.write(f'\n{s.id},{s.name},{s.email},"{",".join(map(str,s.class_ids))}",{course},"{ccoordinator}","{ccoordinator_id}","{ccoordinator_em}",{project},"{pcoordinator}","{pcoordinator_id}","{pcoordinator_em}","{pmentor}","{pmentor_id}",{tech_stream},"{tcoordinator}","{tcoordinator_id}","{tcoordinator_em}","{tmentor}","{tmentor_id}"')
 
-		# check current teams list against desired list
-		#	remove any not on desired list (but check against whitelist, those are save from deletion)
-		for user_in_teams_list in cl['teams_user_list']:
-			if (user_in_teams_list not in cl['desired_user_list'] and user_in_teams_list not in self.user_whitelist):
-				response = self.remove_user_from_class_channel(class_id, cl['teams_user_list'][user_in_teams_list])
-				
-				if (response):
-					count_removed += 1
-				
-		# add any not in teams list but on desired list
-		for user_in_desired_list in cl['desired_user_list']:
-			if (user_in_desired_list not in cl['teams_user_list']):
-				response = self.add_user_to_class_channel(class_id, cl['desired_user_list'][user_in_desired_list])
-				
-				if (response):
-					count_added += 1
+			self.log(f'Exported student list to {output_path}\n\n')
 
-		self.log(f'Updating class {cl} complete (- {count_removed} / + {count_added})')
-
-		return (count_removed, count_added)
 
 	def create_team (self, name, description='', visibility='Private', owners=[], info=''):
 		"""
@@ -733,13 +689,16 @@ class TeamsUpdater:
 
 			self.add_users_to_team(response_group_id, owners, 'Owner')
 
-	def get_team_user_list (self, team_id, role='Member'):
+	def get_team_user_list (self, team_id, role='All'):
 		"""
-		get list of current users in team
-		TODO handle the optional role parameter as filter
+		Get list of current users in team
 		"""
+		role_filter = ''
+		if (role != 'All'):
+			role_filter = f' -Role {role}'
+		
 		response = self.process.run_command(
-			f'Get-TeamUser -GroupId {team_id}',
+			f'Get-TeamUser -GroupId {team_id}{role_filter}',
 			convert_json = True
 		)
 
@@ -752,10 +711,13 @@ class TeamsUpdater:
 			user_list = {}
 
 			for d in response:
+				print(d)
 				userid = d['User'].lower().replace('@ad.unsw.edu.au','')  # 'User ' = accountname@domain
 				user_list[userid] = User(
-					userid,    # zID
-					d['Name']  # name
+					userid,     # zID
+					d['Name'],  # name       
+					[],         # unknown class ids
+					[]          # unknown groups
 				)
 
 			print(f'USER LIST for {team_id}')
@@ -763,10 +725,6 @@ class TeamsUpdater:
 				print(user_list[k])
 
 			return user_list
-
-	def update_team (self, team_id, team_user_list, desired_user_list):
-		""" TODO add/remove users to match the `desired_user_list` """
-		print('ERROR: Not implemented yet')
 
 	def remove_users_from_team (self, team_id, users=[User], role='Member'):
 		""" coonvenience function to remove a list of users in one go """
@@ -781,6 +739,9 @@ class TeamsUpdater:
 
 		self.log(f'Team {team_id}: Removed {user} as {role}')
 
+		# TODO check response
+		return True
+
 	def add_users_to_team (self, team_id, users=[User], role='Member'):
 		""" coonvenience function to add a list of users in one go """
 		for u in users:
@@ -794,14 +755,245 @@ class TeamsUpdater:
 
 		self.log(f'Team {team_id}: Added {user} as {role}')
 
-	def add_tab_to_channel (self, teams_group_id, channel_name, tab_info):
-		""" TODO nice to have, not super useful """
-		self.log('You cannot add tabs to channels yet...','ERROR')
+		# TODO check response
+		return True
 
-	def find_users (self, list_to_search, search_key, search_value):
+	def update_team (self, team_id, desired_user_list, team_user_list=None):
+		""" add/remove users to match the `desired_user_list` """
+
+		count_removed = 0
+		count_added   = 0
+
+		team_user_list = team_user_list
+		if (team_user_list is None):
+			# get the team user list
+			team_user_list = self.get_team_user_list(team_id)
+
+		# check current teams list against desired list
+		#	remove any not on desired list (but check against whitelist, those are save from deletion)
+		for user_in_teams_list in team_user_list:
+			if (user_in_teams_list not in desired_user_list and user_in_teams_list not in self.user_whitelist):
+				response = self.remove_user_from_team(team_id, team_user_list[user_in_teams_list])
+				
+				if (response):
+					count_removed += 1
+				
+		# add any not in teams list but on desired list
+		for user_in_desired_list in desired_user_list:
+			if (user_in_desired_list not in team_user_list):
+				response = self.add_user_to_team(team_id, desired_user_list[user_in_desired_list])
+				
+				if (response):
+					count_added += 1
+
+		self.log(f'Updating team {team_id} complete (- {count_removed} / + {count_added})')
+
+		return (count_removed, count_added)
+
+	def create_channel (self, team_id, channel_name, channel_type='Standard', owners=[]):
+		# create channel
+		response = self.process.run_command(
+			f'New-TeamChannel -GroupId {team_id} -DisplayName "{channel_name}" -MembershipType {channel_type}',
+			convert_json = True
+		)
+
+		# TODO parse response
+		# if (response.find(''))
+
+		self.log(f'Created channel {channel_name} in Team {team_id}')
+
+		# if all good, set owners (only relevant for private channels)
+		if (channel_type == 'Private'):
+			self.add_users_to_channel(team_id, channel_name, owners, role='Owner')
+
+	def get_channels_user_list (self, channels_list):
+		""" TODO untested and unused at the moment """
+		channels_user_lists = {}
+		for ch in channels_list:
+			channels_user_lists[ch.name] = self.get_channel_user_list(ch.team_id, ch.name)
+		return channels_user_lists
+
+	def get_channel_user_list (self, team_id, channel_name, role='All'):
+		""" Get list of current users in channel, and return a dict with user ids as the keys """
+		role_filter = ''
+		if (role != 'All'):
+			role_filter = f' -Role {role}'
+
+		response = self.process.run_command(
+			f'Get-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}"{role_filter}',
+			convert_json = True
+		)
+
+		# parse response
+		# if channel not found, stop
+		#note: 'Get-TeamChannelUser: Channel not found' isn't parseable json, so it craps out...
+		if (type(response) == 'str' and response.find('Channel not found') != -1):
+			return False
+		else:
+			# feed data into list
+			member_list = {}
+
+			for d in response:
+				userid = d['User'].lower().replace('@ad.unsw.edu.au','')  # 'User ' = accountname@domain
+				member_list[userid] = User(
+					userid,     # zID
+					d['Name'],  # name
+					[],         # unknown class ids
+					[]          # unknown groups
+				)
+
+			print(f'USER LIST for {channel_name}')
+			for u in member_list:
+				print(member_list[u])
+
+			return member_list
+
+	def add_users_to_channel (self, team_id, channel_name, users=[User], role='Member'):
+		""" convenience function to add a list of users to a channel """
+		for user in users:
+			self.add_user_to_channel(team_id, channel_name, users[user], role)
+
+	def add_user_to_channel (self, team_id, channel_name, user=User, role='Member'):
+		""" add user to channel """
+		response = self.process.run_command(
+			f'Add-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}" -User {user.id}@ad.unsw.edu.au'
+		)
+
+		# owners needs to be added as regular members first, then set to owner status
+		if (response.find('User is not found in the team.') == -1 and role == 'Owner'):
+			response = self.process.run_command(
+				f'Add-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}" -User {user.id}@ad.unsw.edu.au -Role {role}'
+			)
+
+		# parse response
+		success = True
+		if (response.find('User is not found in the team.') != -1 or response.find('Could not find member.') != -1):
+			success = False
+			self.log(f'Channel {channel_name}: Could not add {user} as {role}', 'ERROR')
+		else:
+			self.log(f'Channel {channel_name}: Added {user} as {role}')
+
+		return success
+
+	def remove_user_from_channel (self, team_id, channel_name, user=User, role='Member'):
+		# remove from to relevant channel
+		response = self.process.run_command(
+			f'Remove-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}" -User {user.id}@ad.unsw.edu.au'
+		)
+
+		success = True
+
+		# by default, no response means things went fine
+		if (len(response) != 0):
+			print(response)
+
+		# TODO parse response (as json will be easier)
+		# Remove-TeamChannelUser: Error occurred while executing 
+		# Code: NotFound
+		# Message: Not Found
+		# InnerError:
+		# RequestId: 55982b3c-1319-4614-97bf-68e67ea94f90
+		# DateTimeStamp: 2020-09-19T23:46:30
+		# HttpStatusCode: NotFound
+		
+
+		self.log(f'Channel {channel_name}: Removed {user} as {role}')
+
+		return success
+
+	def update_channel (self, team_id, channel_name, desired_user_list, channel_user_list=None):
+		self.log(f"Updating channel {channel_name} ({len(desired_user_list)} enrolments)")
+
+		count_removed = 0
+		count_added   = 0
+
+		channel_user_list = channel_user_list
+		if (channel_user_list is None):
+			# get the team user list
+			channel_user_list = self.get_channel_user_list(team_id, channel_name)
+
+		# check current teams list against desired list
+		#	remove any not on desired list (but check against whitelist, those are save from deletion)
+		for user_in_teams_list in channel_user_list:
+			if (user_in_teams_list not in desired_user_list and user_in_teams_list not in self.user_whitelist):
+				response = self.remove_user_from_channel(team_id, channel_name, channel_user_list[user_in_teams_list])
+				
+				if (response):
+					count_removed += 1
+				
+		# add any not in teams list but on desired list
+		for user_in_desired_list in desired_user_list:
+			if (user_in_desired_list not in channel_user_list):
+				response = self.add_user_to_channel(team_id, channel_name, desired_user_list[user_in_desired_list])
+				
+				if (response):
+					count_added += 1
+
+		self.log(f'Updating channel {channel_name} complete (- {count_removed} / + {count_added})')
+
+		return (count_removed, count_added)
+
+
+	# TODO DEPRECATE
+	def get_class_channels_user_list (self):
+		""" iterate over each relevant Class ID and feed into existing data structure """
+		for class_id in self.classes_list:
+			self.get_class_channel_user_list(class_id)
+
+	# TODO DEPRECATE
+	def get_class_channel_user_list (self, class_id):
+		cl = self.classes_list[class_id]
+
+		cl['teams_user_list'] = self.get_channel_user_list(cl.teams_group_id, cl.name)
+
+	# TODO DEPRECATE
+	def create_class_channels (self, channel_type='Private', owners=[]):
+		for class_id in self.classes_list:
+			self.create_channel(team_id, channel_name, owners)
+
+	# TODO DEPRECATE
+	def add_user_to_all_class_channels (self, user=User, role='Member', course_list=[]):
+		""" convenience function to add a single user to all channels at once """
+		for class_id in self.classes_list:
+			cl  = self.classes_list[class_id]
+
+			# check if we exclude courses
+			if (len(course_list) > 0 and cl.course not in course_list):
+				continue  # skip this iteration and move on
+
+			self.add_user_to_class_channel(cl.id, user, role)
+
+	# TODO DEPRECATE
+	def add_user_to_class_channel (self, class_id, user=User, role='Member'):
+		""" # TODO deprecate this function """
+		cl           = self.classes_list[str(class_id)]
+		team_id      = cl['teams_group_id']
+		channel_name = cl['name']
+
+		return self.add_user_to_channel(team_id, channel_name, user, role)
+
+	# TODO DEPRECATE
+	def update_class_channels (self):
+		total_count_removed = 0
+		total_count_added   = 0
+
+		for class_id in self.classes_list:
+			(r, a) = self.update_class_channel(class_id)
+
+			total_count_removed += r
+			total_count_added   += a
+
+		self.log(f'Updating all channels (totals: - {total_count_removed} / + {total_count_added})')
+
+	def find_users (self, search_key, search_value, list_to_search=None, return_type='list'):
 		""" convenience function to find users in a list """
 		# TODO make it easier to access the default user lists
-		results = []
+		list_to_search = list_to_search
+		results        = []
+
+		# default to master list
+		if (list_to_search is None):
+			list_to_search = self.user_list
 
 		# check if list is actually a dict, and if so convert
 		if (isinstance(list_to_search, dict)):
@@ -810,13 +1002,30 @@ class TeamsUpdater:
 		for user in list_to_search:
 			# check whether we match (part of) a string or other types of values
 			if (isinstance(search_value, str)):
-				if (user[search_key].lower().find(search_value.lower()) != -1):
+				if (search_key.lower() == 'group'):
+					for group_name in user.groups:
+						if (search_value in group_name):
+							results.append(user)
+				elif (search_key.lower() == 'group_exact'):
+					for group_name in user.groups:
+						if (search_value == group_name):
+							results.append(user)
+				elif (user[search_key].lower().find(search_value.lower()) != -1):
 					results.append(user)
 			else:
-				if (user[search_key] == search_value):
+				if (search_key.lower() == 'class id'):
+					if (search_value in user.class_ids):
+						results.append(user)
+				elif (user[search_key] == search_value):
 					results.append(user)
 
-		return results
+		if (return_type == 'list'):
+			return results
+		else:
+			results_dict = {}
+			for result in results:
+				results_dict[result.id] = result
+			return results_dict
 				
 	def log (self, action='', type='INFO'):
 		print(f'{type} - {action}')
@@ -825,11 +1034,12 @@ class TeamsUpdater:
 		self.log_file.flush()
 
 
-###
-# a simple method to download a user list CSV file from Moodle
-# course id is unique on Moodle, look at the url to find the id for your course
-###
 class MoodleUpdater:
+	"""
+	Class that enables a small number of repetitive operations on Moodle
+
+	Course id is unique, look at the url on Moodle to find the id for the course
+	"""
 	def __init__ (self, course_id, username, password):
 		self.course_id = course_id
 		self.csv_file  = None
@@ -839,7 +1049,7 @@ class MoodleUpdater:
 
 	def login (self, username, password):
 		"""
-		logs in to single-sign on for Moodle (thus with Office 365 credentials)
+		Logs in to single-sign on for Moodle (thus with Office 365 credentials)
 		usually doesn't fail, so that's quite nice
 		"""
 		print('INFO: Logging in to Moodle...')
@@ -992,7 +1202,7 @@ class MoodleUpdater:
 		"""
 		Automates the auto-creation interface on Moodle
 
-		`grouping_id` has to be fished out from the HTML, there might be a better way of setting that selection box
+		TODO `grouping_id` has to be fished out from the HTML, there might be a better way of setting that selection box
 		(self.browser.select(selection_box_element, desired_option) is the way to go)
 		"""
 		print(f'INFO: Auto-creating groups by {group_by_type}...')
@@ -1099,6 +1309,7 @@ class MoodleUpdater:
 
 	def add_section (self, section_info={}):
 		""" Add a section to Moodle (note: completely untested) """
+
 		# go to course main page and enable editing
 		self.browser.visit(f'https://moodle.telt.unsw.edu.au/course/view.php?id={self.course_id}&notifyeditingon=1')
 
