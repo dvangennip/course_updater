@@ -14,17 +14,11 @@ A script to automate updating MS Teams based on Moodle input
 
 ## TO DO
 - Move away from parsing command line output, use ConvertTo-Json instead to make data exchange reliable
-- Complete update team method and related methods
-- Standardise the use of dicts and/or lists as input to methods
-- Simplify methods to not work on core data, but rather work with input and output (more flexible that way)
-- Do not require input path for class (work that into the import function)
 - Error handling
+- Standardise the use of dicts and/or lists as input to methods
+- Do not require input path for class (work that into the import function)
 - Allow searching by class id and group(ing) data.
-	- It may make using per-class lists obsolete.
-	- ClassItems would be become descriptions of a users list search term(s) and corresponding team or channelname (+ team id).
 	- a filter function might ideally take 2+ search terms
-- Feature: create teams based on grouping data (+ add members as owners)
+	- current `find\_users` method could be chained to achieve multiple search terms in `x AND y` fashion, not `OR` or `ANY`.
 - Add extra data to student User
 	- Moodle groupings
-		- Project, Team, Tech stream are particularly interesting to pick out
-		- the above would allow linking to demonstrators and coordinators based on a reference list

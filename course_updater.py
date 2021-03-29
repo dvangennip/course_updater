@@ -36,24 +36,6 @@ import json
 
 # -----------------------------------------------------------------------------
 
-@dataclass
-class ClassItem:
-	id               : int
-	name             : str
-	teams_group_id   : str
-	course           : str  = ''
-	teams_user_list  : dict = field(default_factory=dict)
-	desired_user_list: dict = field(default_factory=dict)
-
-	def __getitem__ (self, key):
-		return getattr(self, key)
-
-	def __str__ (self):
-		if (len(self.course) > 0):
-			return f'{self.id} ({self.name} / {self.course})'
-		else:
-			return f'{self.id} ({self.name})'
-
 
 @dataclass
 class User:
@@ -123,10 +105,6 @@ class LoginData:
 """ path to Moodle-exported CSV file """
 my_path = 'desn2000-engineering-design---professional-practice---2020-t3.csv'
 
-""" have a list of classes (see for structure the ClassItem class below) """
-my_classes_list = [
-	ClassItem(1112,  'Demonstrators',  '458b02e9-dea0-4f74-8e09-93e95f93b473', 'DESN2000_2020T3_CVEN'),
-]
 
 """
 have a whitelist of users not to be removed from channels (demonstrators, etc)
@@ -401,7 +379,7 @@ class TeamsUpdater:
 	"""
 	Wrapper around powershell teams commands, with additional logic to keep teams and channels in sync with an external list.
 	"""
-	def __init__ (self, path=None, classes={}, whitelist={}, process=None):
+	def __init__ (self, path=None, whitelist={}, process=None):
 		# open log file
 		self.log_file = open('teams_updater.log', 'a')
 		self.log_file.write('\n\n\n~~~ NEW LOG ~~~ ~~~ ~~~ ~~~')
@@ -422,11 +400,6 @@ class TeamsUpdater:
 
 		# master user list (idem, a dict not a list)
 		self.user_list       = {}
-
-		# TODO DEPRECATE legacy classes list
-		self.classes_list    = {}
-		for cl in classes:
-			self.classes_list[str(cl.id)] = cl
 
 		# use existing external process to connect to powershell or create new one
 		if (process is not None):
@@ -464,8 +437,6 @@ class TeamsUpdater:
 		Imports a user list csv file that was exported from Moodle
 		"""
 		self.log(f'Importing data from: {self.data_path}')
-
-		unknown_class_ids = []
 
 		count_total       = 0
 		count_instructors = 0
@@ -523,23 +494,7 @@ class TeamsUpdater:
 					# add new to master list
 					self.user_list[user_id] = new_user
 
-					# TODO DEPRECATE now, iterate over the found class IDs and add the user to its list
-					for class_id in class_ids:
-						if (str(class_id) in self.classes_list.keys()):
-							# overwrite, likely 
-							self.classes_list[str(class_id)]['desired_user_list'][user_id] = new_user
-						else:
-							# add class_id to list of unknown classes - useful feedback in case a class is missing by accident
-							if (class_id not in unknown_class_ids):
-								unknown_class_ids.append(class_id)
-							else:
-								pass  # ignore any later encounters
-
 					count_students += 1
-
-		# sort the unknown class ids from low to high for readability
-		unknown_class_ids.sort()
-		self.log(f'No class items that match Class IDs {", ".join(map(str, unknown_class_ids))}')
 
 		count_total = count_students + count_instructors + count_unknown
 		self.log(f'Imported data on {count_total} users (students: {count_students}, instructors: {count_instructors}, unknown: {count_unknown}).\n\n')
@@ -559,7 +514,7 @@ class TeamsUpdater:
 			for sid in self.user_list:
 				s = self.user_list[sid]
 
-				# avoid including staff (who have no class ids)
+				# avoid including staff (who have no class ids) and partially unenrolled students (also no class ids)
 				if (len(s.class_ids) == 0):
 					continue
 
@@ -804,6 +759,7 @@ class TeamsUpdater:
 
 		# if all good, set owners (only relevant for private channels)
 		if (channel_type == 'Private'):
+			time.sleep(30)  # adding owners immediately after creation tends to cause 'channel not found' errors, a delay may helpl
 			self.add_users_to_channel(team_id, channel_name, owners, role='Owner')
 
 	def get_channels_user_list (self, channels_list):
@@ -815,6 +771,8 @@ class TeamsUpdater:
 
 	def get_channel_user_list (self, team_id, channel_name, role='All'):
 		""" Get list of current users in channel, and return a dict with user ids as the keys """
+
+		# add filter if required
 		role_filter = ''
 		if (role != 'All'):
 			role_filter = f' -Role {role}'
@@ -859,7 +817,7 @@ class TeamsUpdater:
 			f'Add-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}" -User {user.id}@ad.unsw.edu.au'
 		)
 
-		# owners needs to be added as regular members first, then set to owner status
+		# owners need to be added as regular members first, then once more to set the owner status
 		if (response.find('User is not found in the team.') == -1 and role == 'Owner'):
 			response = self.process.run_command(
 				f'Add-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}" -User {user.id}@ad.unsw.edu.au -Role {role}'
@@ -932,58 +890,6 @@ class TeamsUpdater:
 		self.log(f'Updating channel {channel_name} complete (- {count_removed} / + {count_added})')
 
 		return (count_removed, count_added)
-
-
-	# TODO DEPRECATE
-	def get_class_channels_user_list (self):
-		""" iterate over each relevant Class ID and feed into existing data structure """
-		for class_id in self.classes_list:
-			self.get_class_channel_user_list(class_id)
-
-	# TODO DEPRECATE
-	def get_class_channel_user_list (self, class_id):
-		cl = self.classes_list[class_id]
-
-		cl['teams_user_list'] = self.get_channel_user_list(cl.teams_group_id, cl.name)
-
-	# TODO DEPRECATE
-	def create_class_channels (self, channel_type='Private', owners=[]):
-		for class_id in self.classes_list:
-			self.create_channel(team_id, channel_name, owners)
-
-	# TODO DEPRECATE
-	def add_user_to_all_class_channels (self, user=User, role='Member', course_list=[]):
-		""" convenience function to add a single user to all channels at once """
-		for class_id in self.classes_list:
-			cl  = self.classes_list[class_id]
-
-			# check if we exclude courses
-			if (len(course_list) > 0 and cl.course not in course_list):
-				continue  # skip this iteration and move on
-
-			self.add_user_to_class_channel(cl.id, user, role)
-
-	# TODO DEPRECATE
-	def add_user_to_class_channel (self, class_id, user=User, role='Member'):
-		""" # TODO deprecate this function """
-		cl           = self.classes_list[str(class_id)]
-		team_id      = cl['teams_group_id']
-		channel_name = cl['name']
-
-		return self.add_user_to_channel(team_id, channel_name, user, role)
-
-	# TODO DEPRECATE
-	def update_class_channels (self):
-		total_count_removed = 0
-		total_count_added   = 0
-
-		for class_id in self.classes_list:
-			(r, a) = self.update_class_channel(class_id)
-
-			total_count_removed += r
-			total_count_added   += a
-
-		self.log(f'Updating all channels (totals: - {total_count_removed} / + {total_count_added})')
 
 	def find_users (self, search_key, search_value, list_to_search=None, return_type='list'):
 		""" convenience function to find users in a list """
@@ -1357,7 +1263,7 @@ if __name__ == '__main__':
 	# 	my_path = mu.get_users_csv()
 
 	# basic operation by default
-	with TeamsUpdater(my_path, my_classes_list, my_user_whitelist) as tu:
+	with TeamsUpdater(my_path, my_user_whitelist) as tu:
 		# connect at the start - everything else depends on this working
 		tu.connect('automated', login.username, login.password)
 		
