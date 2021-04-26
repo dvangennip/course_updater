@@ -24,16 +24,6 @@ import keyring
 import json
 
 
-# for DESN2000
-# it it assumed Teams are already created and that students are auto-added to teams via Central IT sync
-#	originally, this script was only concerned with keeping private channels in sync with the Moodle list
-
-# make sure that for each tutorial-like ClassItem, there is a corresponding private channel
-#	could be done programmatically but channel name is likely hard to form without knowledge of timetable.
-#   timetable info can be fed in from classutil website but needs parsing.
-#   setting them up manually is very likely to be faster (including adding demonstrators, if that list is short).
-#	generating the class list below isn't too time intensive using regex on the classutil list.
-
 # -----------------------------------------------------------------------------
 
 
@@ -379,7 +369,7 @@ class TeamsUpdater:
 	"""
 	Wrapper around powershell teams commands, with additional logic to keep teams and channels in sync with an external list.
 	"""
-	def __init__ (self, path=None, whitelist={}, process=None):
+	def __init__ (self, path=None, whitelist={}, process=None, username=None, password=None):
 		# open log file
 		self.log_file = open('teams_updater.log', 'a')
 		self.log_file.write('\n\n\n~~~ NEW LOG ~~~ ~~~ ~~~ ~~~')
@@ -406,9 +396,13 @@ class TeamsUpdater:
 			self.process = process
 		else:
 			self.process = PowerShellWrapper()
+
+		self.connected = False
+		self.username  = username
+		self.password  = password
 	
 	def __enter__ (self):
-		""" enables the use of the `with` statement (`with TeamsUpdater() as tu:`) """
+		""" enables the use of the `with` statement (as in `with TeamsUpdater() as tu:`) """
 		return self
 
 	def __exit__ (self, type, value, traceback):
@@ -419,15 +413,20 @@ class TeamsUpdater:
 			pass
 		else:
 			return False  # re-raise the exception to be transparent
-	
-	def connect (self, login_method='default', username=None, password=None):
-		""" most commands require an authenticated session, so connect early to avoid later failures """
-		self.connected = self.process.connect_to_teams(login_method=login_method, username=username, password=password)
 
+	def ensure_connected (self):
+		"""
+		Ensures we're connected to Teams backend whenever this method is called
+		A call to this method should be added anywhere a process command is sent to the Teams backend.
+		By only connecting when required, we skip the time-consuming login whenever possible.
+		"""
+		if (self.connected == False):
+			self.connected = self.process.connect_to_teams('automated', self.username, self.password)
+
+		return self.connected
+	
 	def close (self):
-		"""
-		cleanup any open connections, files open
-		"""
+		""" cleanup any open connections, files open """
 		if (self.process is not None):
 			self.process.close()
 		self.log_file.close()
@@ -458,11 +457,14 @@ class TeamsUpdater:
 
 				# parse groups
 				user_groups = []
-				for n in range(1,50):
-					g = user[f'Group{n}']
-					# empty values are represented as float(nan) but we only care about strings anyway, so just test for that
-					if (g is not None and type(g) is str and len(g) > 0):
-						user_groups.append(g)
+				try:
+					for n in range(1,100):
+						g = user[f'Group{n}']
+						# empty values are represented as float(nan) but we only care about strings anyway, so just test for that
+						if (g is not None and type(g) is str and len(g) > 0):
+							user_groups.append(g)
+				except KeyError:
+					pass  # number of groups shown in Moodle export varies depending on number of groups in use
 
 				new_user = User(
 					user_id,
@@ -499,7 +501,7 @@ class TeamsUpdater:
 		count_total = count_students + count_instructors + count_unknown
 		self.log(f'Imported data on {count_total} users (students: {count_students}, instructors: {count_instructors}, unknown: {count_unknown}).\n\n')
 
-	def export_student_list (self, project_list, tech_stream_list=None):
+	def export_student_list (self, project_list, tech_stream_list=None, terms=None):
 		""" Exports a list of students with project (and optional tech stream) information """
 
 		# assume course code is first thing in path, for example: engg1000-title-2021-t1.csv
@@ -508,9 +510,18 @@ class TeamsUpdater:
 		output_path = self.data_path.replace('.csv', '-students.csv')
 
 		with open(output_path, 'w') as f:
-			# header
-			f.write('Student zID,Student name,Email address,Class IDs,Course,Course coordinator,Course coordinator zID,Course coordinator email,Project,Project coordinator,Project coordinator zID,Project coordinator email,Project mentor,Project mentor zID,Tech stream,Tech stream coordinator,Tech stream coordinator zID,Tech stream coordinator email,Tech stream mentor,Tech stream mentor zID')
+			# write out header
+			header = 'Student zID,Student name,Email address,Class IDs,Course,Course coordinator,Course coordinator zID,Course coordinator email,Project,Project coordinator,Project coordinator zID,Project coordinator email,Project class,Project mentor,Project mentor zID,Project mentor email,Tech stream,Tech stream coordinator,Tech stream coordinator zID,Tech stream coordinator email,Tech stream mentor,Tech stream mentor zID,Tech stream mentor email'
+			if (terms != None):
+				if (terms['Project']):
+					header = header.replace('Project',     terms['Project'])
+				if (terms['Mentor']):
+					header = header.replace('Mentor',      terms['Mentor'])
+				if (terms['Tech stream']):
+					header = header.replace('Tech stream', terms['Tech stream'])
+			f.write(header)
 			
+			# iterate over all students in the list
 			for sid in self.user_list:
 				s = self.user_list[sid]
 
@@ -528,6 +539,7 @@ class TeamsUpdater:
 				pcoordinator_id = '-'
 				pcoordinator_em = '-'
 
+				pclass          = '-'
 				pmentor         = '-'
 				pmentor_id      = '-'
 				pmentor_em      = '-'
@@ -541,7 +553,54 @@ class TeamsUpdater:
 				tmentor_id      = '-'
 				tmentor_em      = '-'
 
+				# loop over all groups to extract useful info
 				for g in s.groups:
+
+					# --- class ID-based matching below (fits most courses)
+					
+					if ( g.isdigit() ):
+						# find the relevant project
+						for pkey in project_list:
+							p = project_list[pkey]
+							
+							# main_class_id may not exists for courses where it's irrelevant
+							if (p['main_class_id'] and p['main_class_id'] == int(g)):
+								project = pkey
+								# if matching project is found, no need to continue the for loop trying other projects
+								break
+							else:
+								for cl in p['classes']:
+									if (cl['class_id'] == int(g)):
+										if (cl['name'].find('LAB') != -1):
+											tech_stream += f", {cl['name']}_{cl['class_id']}  [ {cl['description']} ]"
+											
+											# add demonstrator info
+											for did in cl['demonstrators']:
+												tmentor    += ', ' + self.user_whitelist[did].name
+												tmentor_id += ', ' + did
+												tmentor_em += ', ' + self.user_whitelist[did].email
+											
+											tech_stream = tech_stream.replace(    '-, ', '')
+											tmentor     = tmentor.replace(   '-, ', '')
+											tmentor_id  = tmentor_id.replace('-, ', '')
+											tmentor_em  = tmentor_em.replace('-, ', '')
+										else:
+											pclass += f", {cl['name']}_{cl['class_id']}  [ {cl['description']} ]"
+											
+											# add demonstrator info
+											for did in cl['demonstrators']:
+												pmentor    += ', ' + self.user_whitelist[did].name
+												pmentor_id += ', ' + did
+												pmentor_em += ', ' + self.user_whitelist[did].email
+											
+											pclass     = pclass.replace(    '-, ', '')
+											pmentor    = pmentor.replace(   '-, ', '')
+											pmentor_id = pmentor_id.replace('-, ', '')
+											pmentor_em = pmentor_em.replace('-, ', '')
+
+					# --- group name based matching below (fits ENGG1000 best)
+
+					# TODO generalise to allow other terms than 'Project'
 					if (g.find('Project Group - ') != -1):
 						project = re.sub(
 							r'Project Group - (?P<project>.+?) \(.+?\)',  # original
@@ -590,12 +649,14 @@ class TeamsUpdater:
 									if (mu.name.lower() == tmentor.lower()):
 										tmentor_id = mu.id
 										tmentor_em = mu.email
+				
+				# --- below we assume project and streams have been found
+				#     now, it's about filling in the details
 
 				if (project != '-'):
-					pcoordinator_id = project_list[project]['coordinator']
-					pids = pcoordinator_id.split(',')
-
-					for index, pid in enumerate(pids):
+					pcoordinator_id = project_list[project]['coordinators']
+					
+					for index, pid in enumerate(pcoordinator_id):
 						pcoordinator    += ', ' + self.user_whitelist[pid].name
 						pcoordinator_em += ', ' + self.user_whitelist[pid].email
 
@@ -604,10 +665,9 @@ class TeamsUpdater:
 							pcoordinator_em = pcoordinator_em.replace('-, ','')
 
 				if (tech_stream_list is not None and tech_stream != '-'):
-					tcoordinator_id = tech_stream_list[tech_stream]['coordinator']
-					tids = tcoordinator_id.split(',')
-
-					for index, tid in enumerate(tids):
+					tcoordinator_id = tech_stream_list[tech_stream]['coordinators']
+					
+					for index, tid in enumerate(tcoordinator_id):
 						tcoordinator    += ', ' + self.user_whitelist[tid].name
 						tcoordinator_em += ', ' + self.user_whitelist[tid].email
 
@@ -615,23 +675,31 @@ class TeamsUpdater:
 							tcoordinator    = tcoordinator.replace('-, ','')
 							tcoordinator_em = tcoordinator_em.replace('-, ','')
 
-				f.write(f'\n{s.id},{s.name},{s.email},"{",".join(map(str,s.class_ids))}",{course},"{ccoordinator}","{ccoordinator_id}","{ccoordinator_em}",{project},"{pcoordinator}","{pcoordinator_id}","{pcoordinator_em}","{pmentor}","{pmentor_id}",{tech_stream},"{tcoordinator}","{tcoordinator_id}","{tcoordinator_em}","{tmentor}","{tmentor_id}"')
+				# --- finally, write output for this student
+				f.write(f'\n{s.id},{s.name},{s.email},"{",".join(map(str,s.class_ids))}",{course},"{ccoordinator}","{ccoordinator_id}","{ccoordinator_em}",{project},"{pcoordinator}","{", ".join(pcoordinator_id)}","{pcoordinator_em}","{pclass}","{pmentor}","{pmentor_id}","{pmentor_em}","{tech_stream}","{tcoordinator}","{", ".join(tcoordinator_id)}","{tcoordinator_em}","{tmentor}","{tmentor_id}","{tmentor_em}"')
 
 			self.log(f'Exported student list to {output_path}\n\n')
 
 
-	def create_team (self, name, description='', visibility='Private', owners=[], info=''):
+	def create_team (self, name, description='', visibility='Private', owners=[], template=None, info=''):
 		"""
 		Create a new Team. Connected account will become an owner automatically.
 
 		see: https://docs.microsoft.com/en-us/powershell/module/teams/new-team?view=teams-ps
 		info parameter isn't used/required for anything but may be useful to parse the logs and keep team data and other info together.
+
+		  template : (optional) String, either "EDU_Class" or "EDU_PLC"
 		"""
+		self.ensure_connected()
+
+		template_param = ''
+		if (template is not None):
+			template_param = f' -Template {template}'
 		
 		# TODO improve this by using convert_json = True to get team object in one go
 		# create team
 		response = self.process.run_command(
-			f'$group = New-Team -DisplayName "{name}" -Description "{description}" -Visibility {visibility}'
+			f'$group = New-Team -DisplayName "{name}" -Description "{description}" -Visibility {visibility}{template_param}'
 		)
 		# parse response in 2nd step (returns a Group object with GroupID for the newly created team)
 		response_group_id = self.process.run_command('$group.GroupId')
@@ -648,6 +716,8 @@ class TeamsUpdater:
 		"""
 		Get list of current users in team
 		"""
+		self.ensure_connected()
+
 		role_filter = ''
 		if (role != 'All'):
 			role_filter = f' -Role {role}'
@@ -688,6 +758,8 @@ class TeamsUpdater:
 
 	def remove_user_from_team (self, team_id, user=User, role='Member'):
 		""" removing a user as role='Owner' keeps them as a team member """
+		self.ensure_connected()
+
 		response = self.process.run_command(
 			f'Remove-TeamUser -GroupId {team_id} -User {user.id}@ad.unsw.edu.au -Role {role}'
 		)
@@ -704,6 +776,8 @@ class TeamsUpdater:
 
 	def add_user_to_team (self, team_id, user=User, role='Member'):
 		""" Adds a user to the team. Add an existing member as an `Owner` to elevate their role. """
+		self.ensure_connected()
+
 		response = self.process.run_command(
 			f'Add-TeamUser -GroupId {team_id} -User {user.id}@ad.unsw.edu.au -Role {role}'
 		)
@@ -713,8 +787,9 @@ class TeamsUpdater:
 		# TODO check response
 		return True
 
-	def update_team (self, team_id, desired_user_list, team_user_list=None):
+	def update_team (self, team_id, desired_user_list, team_user_list=None, role='All'):
 		""" add/remove users to match the `desired_user_list` """
+		self.ensure_connected()
 
 		count_removed = 0
 		count_added   = 0
@@ -722,12 +797,13 @@ class TeamsUpdater:
 		team_user_list = team_user_list
 		if (team_user_list is None):
 			# get the team user list
-			team_user_list = self.get_team_user_list(team_id)
+			team_user_list = self.get_team_user_list(team_id, role)
 
 		# check current teams list against desired list
 		#	remove any not on desired list (but check against whitelist, those are save from deletion)
 		for user_in_teams_list in team_user_list:
-			if (user_in_teams_list not in desired_user_list and user_in_teams_list not in self.user_whitelist):
+			if (user_in_teams_list not in desired_user_list):
+				# no role is indicated, so removal should remove the user rather than demote them from owner to member
 				response = self.remove_user_from_team(team_id, team_user_list[user_in_teams_list])
 				
 				if (response):
@@ -736,7 +812,12 @@ class TeamsUpdater:
 		# add any not in teams list but on desired list
 		for user_in_desired_list in desired_user_list:
 			if (user_in_desired_list not in team_user_list):
-				response = self.add_user_to_team(team_id, desired_user_list[user_in_desired_list])
+				if (role == 'All'):
+					# follow User role
+					response = self.add_user_to_team(team_id, desired_user_list[user_in_desired_list], role=desired_user_list[user_in_desired_list].role())
+				else:
+					# follow the generic role indicated
+					response = self.add_user_to_team(team_id, desired_user_list[user_in_desired_list], role)
 				
 				if (response):
 					count_added += 1
@@ -745,10 +826,17 @@ class TeamsUpdater:
 
 		return (count_removed, count_added)
 
-	def create_channel (self, team_id, channel_name, channel_type='Standard', owners=[]):
+	def create_channel (self, team_id, channel_name, channel_type='Standard', owners=[], description=None):
+		""" Create a new channel in a team with the specific name and type """
+		self.ensure_connected()
+
+		desc = ''
+		if (description != None):
+			desc = f' -Description "{description}"'
+
 		# create channel
 		response = self.process.run_command(
-			f'New-TeamChannel -GroupId {team_id} -DisplayName "{channel_name}" -MembershipType {channel_type}',
+			f'New-TeamChannel -GroupId {team_id} -DisplayName "{channel_name}" -MembershipType {channel_type}{desc}',
 			convert_json = True
 		)
 
@@ -762,15 +850,16 @@ class TeamsUpdater:
 			time.sleep(30)  # adding owners immediately after creation tends to cause 'channel not found' errors, a delay may helpl
 			self.add_users_to_channel(team_id, channel_name, owners, role='Owner')
 
-	def get_channels_user_list (self, channels_list):
+	def get_channels_user_list (self, channels_list, role='All'):
 		""" TODO untested and unused at the moment """
 		channels_user_lists = {}
 		for ch in channels_list:
-			channels_user_lists[ch.name] = self.get_channel_user_list(ch.team_id, ch.name)
+			channels_user_lists[ch.name] = self.get_channel_user_list(ch.team_id, ch.name, role=role)
 		return channels_user_lists
 
 	def get_channel_user_list (self, team_id, channel_name, role='All'):
 		""" Get list of current users in channel, and return a dict with user ids as the keys """
+		self.ensure_connected()
 
 		# add filter if required
 		role_filter = ''
@@ -813,6 +902,8 @@ class TeamsUpdater:
 
 	def add_user_to_channel (self, team_id, channel_name, user=User, role='Member'):
 		""" add user to channel """
+		self.ensure_connected()
+
 		response = self.process.run_command(
 			f'Add-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}" -User {user.id}@ad.unsw.edu.au'
 		)
@@ -834,6 +925,9 @@ class TeamsUpdater:
 		return success
 
 	def remove_user_from_channel (self, team_id, channel_name, user=User, role='Member'):
+		""" remove user from specified channel """
+		self.ensure_connected()
+
 		# remove from to relevant channel
 		response = self.process.run_command(
 			f'Remove-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}" -User {user.id}@ad.unsw.edu.au'
@@ -859,7 +953,7 @@ class TeamsUpdater:
 
 		return success
 
-	def update_channel (self, team_id, channel_name, desired_user_list, channel_user_list=None):
+	def update_channel (self, team_id, channel_name, desired_user_list, channel_user_list=None, role='All'):
 		self.log(f"Updating channel {channel_name} ({len(desired_user_list)} enrolments)")
 
 		count_removed = 0
@@ -868,12 +962,13 @@ class TeamsUpdater:
 		channel_user_list = channel_user_list
 		if (channel_user_list is None):
 			# get the team user list
-			channel_user_list = self.get_channel_user_list(team_id, channel_name)
+			channel_user_list = self.get_channel_user_list(team_id, channel_name, role)
 
 		# check current teams list against desired list
 		#	remove any not on desired list (but check against whitelist, those are save from deletion)
 		for user_in_teams_list in channel_user_list:
 			if (user_in_teams_list not in desired_user_list and user_in_teams_list not in self.user_whitelist):
+				# no role is indicated, so removal should remove the user rather than demote them from owner to member
 				response = self.remove_user_from_channel(team_id, channel_name, channel_user_list[user_in_teams_list])
 				
 				if (response):
@@ -882,7 +977,15 @@ class TeamsUpdater:
 		# add any not in teams list but on desired list
 		for user_in_desired_list in desired_user_list:
 			if (user_in_desired_list not in channel_user_list):
+				# TODO manage role
 				response = self.add_user_to_channel(team_id, channel_name, desired_user_list[user_in_desired_list])
+
+				if (role == 'All'):
+					# follow User role
+					response = self.add_user_to_channel(team_id, channel_name, desired_user_list[user_in_desired_list], role=desired_user_list[user_in_desired_list].role())
+				else:
+					# follow the generic role indicated
+					response = self.add_user_to_channel(team_id, channel_name, desired_user_list[user_in_desired_list], role)
 				
 				if (response):
 					count_added += 1
@@ -1104,13 +1207,8 @@ class MoodleUpdater:
 		# filename = max([filepath +"\"+ f for f in os.listdir(filepath)], key=os.path.getctime)
 		# shutil.move(os.path.join(dirpath,filename),newfilename)
 
-	def auto_create_groups (self, group_by_type='classid', grouping_id=None):
-		"""
-		Automates the auto-creation interface on Moodle
-
-		TODO `grouping_id` has to be fished out from the HTML, there might be a better way of setting that selection box
-		(self.browser.select(selection_box_element, desired_option) is the way to go)
-		"""
+	def auto_create_groups (self, group_by_type='classid', grouping_name=None):
+		""" Automates the groups auto-creation interface on Moodle """
 		print(f'INFO: Auto-creating groups by {group_by_type}...')
 		
 		# go straight to the auto-create groups page for the course
@@ -1120,15 +1218,16 @@ class MoodleUpdater:
 		group_type_el = self.browser.find_by_id('id_groupby')
 		group_type_el.select( group_by_type.lower().replace(' ', '') )
 
-		if (grouping_id is not None):
+		if (grouping_name is not None):
 			# make the grouping selection area visible
 			grouping_field_el  = self.browser.find_by_id('id_groupinghdr')
 			grouping_header_el = grouping_field_el.first.find_by_tag('a')
 			grouping_header_el.click()
 
-			# select the pre-existing grouping id
-			grouping_select_el = self.browser.find_by_id('id_grouping')
-			grouping_select_el.select(grouping_id)  # e.g., the id 53183 may correspond to desired grouping id
+			# select the option (make sure to pick the last one as it may occur more than once elsewhere on the page)
+			# grouping_select_el = self.browser.find_by_id('id_grouping')
+			self.browser.find_option_by_text( grouping_name ).last.click()
+			# alt method: self.browser.select(selection_box_element, desired_option)
 
 		# submit the form
 		self.browser.find_by_id('id_submitbutton').click()
@@ -1140,10 +1239,23 @@ class MoodleUpdater:
 
 	def add_gradebook_category (self, category_info={}):
 		"""
-		Ruin the gradebook by running this completely untested *ahem* experimental method
+		Ruin the gradebook by running this experimental method
+
+		category_info is a dict {} with the following parameters:
+		  name            : (required) String of text
+		  aggregation     : (optional) String of text, must match option name in Moodle
+		  id              : (optional) String of text
+		  grade_max       : (optional) Number (can be int or float)
+		  parent_category : (optional) String of text, must match existing category name
+		  weight          : (optional) Float in range [0,1]
 		"""
+		print(f'INFO: Adding the {category_info["name"]} gradebook category...')
+
 		# go straight to add/edit gradebook category page
 		self.browser.visit(f'https://moodle.telt.unsw.edu.au/grade/edit/tree/category.php?courseid={self.course_id}')
+
+		# give some time to settle
+		time.sleep(10)
 
 		# expand all panes to simplify later steps
 		expand_el = self.browser.find_by_css('a[class=collapseexpand]')
@@ -1151,49 +1263,50 @@ class MoodleUpdater:
 
 		# set fields
 		# category name
-		if (category_info['name']):
+		if ('name' in category_info):
 			self.browser.find_by_css('input[id=id_fullname]').fill(category_info['name'])
 		# aggregation method           
 		if (category_info['aggregation']):
-			aggr_el = self.browser.find_by_css('select[id=id_aggregation]')
-			self.browser.select('id_aggregation', category_info['aggregation'])
+			self.browser.find_option_by_text( category_info['aggregation'] ).first.click()
 		# ID number
-		if (category_info['id']):
+		if ('id' in category_info):
 			self.browser.find_by_css('input[id=id_grade_item_idnumber]').fill(category_info['id'])
 		# max grade
-		if (category_info['grade_max']):
-			self.browser.find_by_css('input[id=id_grade_item_grademax]').fill(category_info['grade_max'])
+		if ('grade_max' in category_info):
+			self.browser.find_by_css('input[id=id_grade_item_grademax]').fill(str(category_info['grade_max']))
 		# parent category
-		if (category_info['parent_category']):
-			self.browser.select('id_parentcategory', category_info['parent_category'])
+		if ('parent_category' in category_info):
+			self.browser.find_option_by_text( category_info['parent_category'] ).first.click()
 
 		save_button_el = self.browser.find_by_id('id_submitbutton')
 		save_button_el.click()
 
 		# give some time to settle
-		time.sleep(5)
+		time.sleep(10)
 
 		# new page will load, showing grade updates in progress
 		# no need to click continue button as long as we know process completes (button appears then)
-		continue_button_not_found = True
+		# TODO this intermediate page doesn't show when no grades are present, so must be skipped then
+		if (False):
+			continue_button_not_found = True
 
-		while (continue_button_not_found):
-			time.sleep(5)
-			# TODO improve finding process to get this unique button
-			continue_el = self.browser.find_by_css('button[type=submit]')
+			while (continue_button_not_found):
+				time.sleep(5)
+				# TODO improve finding process to get this unique button
+				continue_el = self.browser.find_by_css('button[type=submit]')
 
-			if (continue_el == []):  # empty list means element is not found
-				continue
-			else:
-				continue_button_not_found = False
-				continue_el.click()
+				if (continue_el == []):  # empty list means element is not found
+					continue
+				else:
+					continue_button_not_found = False
+					continue_el.click()
 
-				# going back to gradebook now
-				time.sleep(15)
-				break
+					# going back to gradebook now
+					time.sleep(15)
+					break
 
 		# search for weight input field
-		if (category_info['weight']):
+		if ('weight' in category_info):
 			# first, find category_weight_id on the page
 			# iterate over every relevant label and check the .text value for a match
 			category_weight_id = None
@@ -1201,23 +1314,56 @@ class MoodleUpdater:
 			
 			for l in label_els:
 				if (l.text == f"Extra credit value for {category_info['name']}"):
-					category_weight_id = label_el.get_attribute('for')
-					break  # exit for loop
+					category_weight_id = l['for']
+					break  # found the right one, exit for loop early
 			
 			if (category_weight_id is not None):
-				weight_el = self.browser.find_by_css(f'input[id=weight_{category_weight_id}]')
-				weight_el.fill(category_info['weight'])
+				weight_el = self.browser.find_by_css(f'input[id={category_weight_id}]')
+				weight_el.fill(str(category_info['weight']))
 
 				# submit changes
-				self.browser.find_by_css('input[value=Save changes]').click()
+				self.browser.find_by_css('input[value=Save\ changes]').click()
 
 				time.sleep(5)
 
-	def add_section (self, section_info={}):
-		""" Add a section to Moodle (note: completely untested) """
+		print(f'INFO: Added the {category_info["name"]} gradebook category.')
 
-		# go to course main page and enable editing
-		self.browser.visit(f'https://moodle.telt.unsw.edu.au/course/view.php?id={self.course_id}&notifyeditingon=1')
+	def add_section (self, section_info={}):
+		"""
+		Add a section to Moodle
+
+		section_info is a dict {} with the following parameters:
+		  name         : (required) String of text
+		  description  : (optional) String of text
+		  restrictions : (optional) list of dicts, e.g. [{'group': 'some group'}, {'grouping': 'some grouping'}]
+		  hidden       : (optional) True or False
+		"""
+		print(f'INFO: Adding section named {section_info["name"]}...')
+
+		# go to course main page 
+		self.browser.visit(f'https://moodle.telt.unsw.edu.au/course/view.php?id={self.course_id}')
+
+		time.sleep(10)
+
+		# first check if section already exists
+		section_title_els = self.browser.find_by_css('a.quickeditlink')
+		for s_title in section_title_els:
+			if (s_title == section_info['name']):
+				print(f'INFO: Section named {section_info["name"]} already exists. Skipped.')
+				return
+
+		# enable editing by clicking the right button
+		buttons = self.browser.find_by_css('button[type=submit]')
+		for b in buttons:
+			if (b.text == 'Turn editing on'):
+				b.click()
+
+				# let things settle
+				time.sleep(15)
+				
+				break  # no need anymore to check other buttons
+			elif (b.text == 'Turn editing off'):
+				break  # we're in the editing mode already
 
 		# add an empty section
 		self.browser.find_by_css('a[class=increase-sections]').click()
@@ -1225,28 +1371,153 @@ class MoodleUpdater:
 		time.sleep(10)
 
 		# edit section
-		# TODO find out section id (or pick last (new) section edit button)
-		section_id = 0 #TODO
+		section    = self.browser.find_by_css('li.section').last
+		section_id = section['aria-labelledby'].replace('sectionid-', '').replace('-title', '')
 		self.browser.visit(f'https://moodle.telt.unsw.edu.au/course/editsection.php?id={section_id}&sr=0')
+		
 		time.sleep(10)
 
-		# expand all
+		# expand all panes to simplify later steps
+		expand_el = self.browser.find_by_css('a[class=collapseexpand]')
+		expand_el.click()
 
 		# fill name
-		#fill(section_info['name'])
+		if ('name' in section_info):
+			# enable a custom name
+			self.browser.find_by_id('id_name_customize').click()
+
+			self.browser.find_by_id('id_name_value').fill(section_info['name'])
 		# fill description
-		#fill(section_info['description'])
+		if ('description' in section_info):
+			self.browser.find_by_id('id_summary_editor').fill(section_info['description'])
 		
 		# set access restrictions
+		if ('restrictions' in section_info):
+			for r in section_info['restrictions']:
+				self.browser.find_by_text('Add restriction...').click()
+				time.sleep(1)
+
+				if ('group' in r):
+					self.browser.find_by_id('availability_addrestriction_group').click()
+					time.sleep(1)
+					self.browser.find_option_by_text(r['group']).first.click()
+				elif ('grouping' in r):
+					self.browser.find_by_id('availability_addrestriction_grouping').click()
+					time.sleep(1)
+					self.browser.find_option_by_text(r['grouping']).first.click()
+				else:
+					print(f'WARNING restriction type in {r} is not supported yet')
+				time.sleep(1)
+
+				# toggle 'hide otherwise' eye icon when desired (do so by default)
+				availability_eye_el = self.browser.find_by_css('a.availability-eye')
+				availability_eye_el.last.click()
 
 		# save changes
-		#TODO
-		time.sleep(20)
+		self.browser.find_by_id('id_submitbutton').click()
 
-	def add_project (self, project_info={}):
-		""" convenience function that adds sections and gradebook categories for a project within the course """
-		# TODO put in effort to enable me to be super-lazy next time :)
-		pass
+		# returning to main sectin view
+		time.sleep(10)
+
+		# set hidden state (must be done from section view)
+		if ('hidden' in section_info and section_info['hidden'] == True):
+			# first, toggle the edit popup to be visible, then click the hide button within
+			edit_toggle_buttons = self.browser.find_by_css('a.dropdown-toggle')
+			edit_toggle_buttons.last.click()
+			time.sleep(0.5)
+
+			hide_section_button = self.browser.find_by_text('Hide section')
+			hide_section_button.last.click()
+			time.sleep(5)
+
+		print(f'INFO: Added section named {section_info["name"]}.')
+
+	def export_groups_list (self, project_list):
+		""" Generates a csv file for importing into Moodle with basic group and grouping setup """
+		
+		output_path = self.csv_file.replace('.csv', '-groups.csv')
+
+		with open(output_path, 'w') as fo:
+			# write header
+			fo.write('groupname,groupingname')
+
+			for pname in project_list:
+				p = project_list[pname]
+
+				fo.write(f'\n"Staff {pname}","Staff Grouping (All)"')
+
+				# TODO make this more accurate and/or flexible
+				# ENGG1000 would use 'Project Group - {pname}' and usually not 'Project Grouping - {pname}'
+				# ^ it isn't dependent on class ids like DESN2000 is
+				# use something else instead of 'Students'?
+				if ('main_class_id' in p):
+					fo.write(f'\n"{p["main_class_id"]}","Students Grouping - {pname}"')
+					fo.write(f'\n"{p["main_class_id"]}","Students Grouping (All)"')
+				else:
+					fo.write(f'\n"DUMMY GROUP","Students Grouping - {pname}"')
+					fo.write(f'\n"DUMMY GROUP","Students Grouping (All)"')
+				
+				fo.write(f'\n"DUMMY GROUP","Student Teams - {pname}"')
+				fo.write(f'\n"DUMMY GROUP","Student Teams (All)"')
+
+			print(f'\nExported groups list to {output_path}\n\n')
+
+
+class LMUpdater:
+	"""
+	Class that enables a small number of repetitive operations on the Learning Management system via myUNSW
+	"""
+	def __init__ (self, course_name, course_term, username, password):
+		self.course_name = course_id
+		self.course_term = course_term
+		self.logged_in = False
+
+		self.login(username, password)
+
+	def login (self, username, password):
+		"""
+		Logs in to single-sign on for myUNSW (thus with Office 365 credentials)
+		usually doesn't fail, so that's quite nice
+		"""
+		print('INFO: Logging in to Learning Management on myUNSW...')
+
+	def update_staff_list (self, staff_list):
+		""" Update staff members """
+
+		#self.browser.visit('https://my.unsw.edu.au/academic/learningManagement/lmsModuleSearch.xml')
+		#select name 'termSrch', select value '5216' for '5216 Term 2 2021'
+		#input name 'includedCourseSrch', fill to self.course_name
+		#input submit 'bsdsSubmit-search'
+		# time.sleep(5)
+		#click on input submit 'bsdsSubmit-select-1' (assuming we have one hit)
+		# will direct us to 'https://my.unsw.edu.au/academic/learningManagement/lmsModuleCourses.xml'
+		# time.sleep(5)
+
+		# go to staff page
+		# self.browser.visit('https://my.unsw.edu.au/academic/learningManagement/lmsStaffRoles.xml')
+
+		# parse table
+		staff_listed = {}
+		# for each tr with class 'data', extract td with class 'data', gives: staff zIDs, name, role (select with name 'role-0')
+		# staff_listed[zID] = {}
+
+		#for staff_listed but not in staff_list
+		# remove with input submit 'bsdsSubmit-deleteStaff0'
+
+		# for staff_list and staff_listed
+		# adjust role if it's not matching
+		
+		#for staff_list but not in staff_listed
+		# add by searching zID
+		# fill input text 'staffId'
+		# click input submit 'bsdsSubmit-searchID'
+		#time.sleep(5)
+		# pick from list of names found
+		# iterate until found
+		# click to add
+		#time.sleep(5)
+		# set their role here, or let it be set in step 2 if we loop there?
+		
 
 
 # -----------------------------------------------------------------------------
