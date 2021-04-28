@@ -1182,6 +1182,64 @@ class MoodleUpdater:
 
 				return filename
 
+	def get_grouping_data (self, output_path):
+		""" TODO extracts grouping info and exports to csv """
+		print('INFO: Getting grouping data from Moodle...')
+		
+		self.browser.visit(f'https://moodle.telt.unsw.edu.au/group/groupings.php?id={self.course_id}')
+
+		# structure of the groupings table
+		#<table class="generaltable">  <-- class occurs only once so it's unique
+		#	<thead>
+		#	<tbody>
+		#		<tr>
+		#			<td class=cell c0>grouping name</td>
+		#			<td class=cell c1>group1, group2</td>
+
+		# find the table
+		table = self.browser.find_by_css('table[class=generaltable]').first
+		
+		# within .generaltable, get all elements with class 'cell c0' and 'cell c1'
+		grouping_list_els = table.find_by_xpath(".//td[@class='cell c0']")
+		groups_list_els   = table.find_by_xpath(".//td[@class='cell c1']")
+
+		# take element lists and extract inner text from elements
+		grouping_list = []
+		groups_list   = []
+
+		# c0 is list of grouping names
+		for g in grouping_list_els:
+			grouping_list.append( g.text )
+
+		# c1 is list of group names for a grouping --> c1.split(', ')
+		for g in groups_list_els:
+			groups_list.append( g.text.split(', ') )
+
+		# with all data available, transform into useful format
+		#    groups_dict will hold all groups encountered, and for each list the groupings it's part of
+		#    elsewhere, this can be used to add grouping info based on the groups encountered
+		groups_dict = {}
+
+		for index in range(0,len(grouping_list)):
+			grouping = grouping_list[index]
+			groups   = groups_list[index]
+
+			for group in groups:
+				# add grouping to the group's list, or create a fresh list
+				if (group in groups_dict):
+					if (grouping not in groups_dict[group]):
+						groups_dict[group].append(grouping)
+				else:
+					groups_dict[group] = [grouping]
+
+		# export data to file
+		with open(output_path, 'w') as f:
+			f.write( json.dumps(groups_dict, sort_keys=True, indent=4) )
+
+		print('INFO: Grouping data export complete.')
+
+		return groups_dict
+
 	def get_grades_csv (self):
 		""" TODO not sure if I ever used/tested this """
 		print('INFO: Getting grades data CSV file from Moodle...')
