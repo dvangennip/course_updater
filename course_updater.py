@@ -34,9 +34,8 @@ class User:
 	class_ids: []
 	groups   : []
 	groupings: []
-	owner    : bool = False  # 'Member'|'Owner'
-	course   : str  = ''
 	email    : str  = ''
+	owner    : bool = False  # 'Member'|'Owner'
 
 	def __getitem__ (self, key):
 		return getattr(self, key)
@@ -494,10 +493,9 @@ class TeamsUpdater:
 					user['First name'] + ' ' + user['Surname'],
 					class_ids,
 					user_groups,
-					user_groupings
+					user_groupings,
+					user['Email address']
 				)
-				# TODO integrate into above
-				new_user.email = user['Email address']
 
 				# users without classes assigned get added to the whitelist
 				# in Moodle, more or less by definition, no ClassID -> staff
@@ -766,7 +764,9 @@ class TeamsUpdater:
 					userid,     # zID
 					d['Name'],  # name       
 					[],         # unknown class ids
-					[]          # unknown groups
+					[],         # unknown groups
+					[],         # unknown groupings
+					d['User']
 				)
 
 			print(f'USER LIST for {team_id}')
@@ -905,12 +905,14 @@ class TeamsUpdater:
 			member_list = {}
 
 			for d in response:
-				userid = d['User'].lower().replace('@ad.unsw.edu.au','')  # 'User ' = accountname@domain
+				userid = d['User'].lower().replace('@ad.unsw.edu.au','')  # 'User' = accountname@domain
 				member_list[userid] = User(
 					userid,     # zID
 					d['Name'],  # name
 					[],         # unknown class ids
-					[]          # unknown groups
+					[],         # unknown groups
+					[],         # unknown groupings
+					d['User']
 				)
 
 			print(f'USER LIST for {channel_name}')
