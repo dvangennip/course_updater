@@ -1043,6 +1043,10 @@ class TeamsUpdater:
 					for group_name in user.groups:
 						if (search_value == group_name):
 							results.append(user)
+				elif (search_key.lower() == 'grouping'):
+					for grouping_name in user.groupings:
+						if (search_value in grouping_name):
+							results.append(user)
 				elif (user[search_key].lower().find(search_value.lower()) != -1):
 					results.append(user)
 			else:
