@@ -33,6 +33,7 @@ class User:
 	name     : str
 	class_ids: []
 	groups   : []
+	groupings: []
 	owner    : bool = False  # 'Member'|'Owner'
 	course   : str  = ''
 	email    : str  = ''
@@ -51,6 +52,9 @@ class User:
 
 	def in_group (self, group):
 		return (group in self.groups)
+
+	def in_grouping (self, grouping):
+		return (grouping in self.groupings)
 
 
 class LoginData:
@@ -445,6 +449,12 @@ class TeamsUpdater:
 		count_instructors = 0
 		count_students    = 0
 		count_unknown     = 0
+
+		groups_dict       = {}
+
+		# before importing user data, get grouping data ready for later merging
+		with open(self.data_path.replace('.csv', '_groupings.json'), 'r') as fg:
+			groups_dict = json.loads( fg.read() )
 		
 		# open and read CSV file - assumes existence of columns named Username (for zID), First Name, Surname, and a few more
 		with open(self.data_path) as fs:
@@ -459,22 +469,32 @@ class TeamsUpdater:
 				if (user['Class ID'] != '-'):
 					class_ids = list(map(int, user['Class ID'].split(',')))
 
-				# parse groups
-				user_groups = []
+				# parse groups and groupings
+				user_groups    = []
+				user_groupings = []
+
 				try:
 					for n in range(1,100):
 						g = user[f'Group{n}']
 						# empty values are represented as float(nan) but we only care about strings anyway, so just test for that
 						if (g is not None and type(g) is str and len(g) > 0):
 							user_groups.append(g)
+
+							# find groupings that incorporate this group
+							if (g in groups_dict):
+								for grouping in groups_dict[g]:
+									if (grouping not in user_groupings):
+										user_groupings.append(grouping)
 				except KeyError:
 					pass  # number of groups shown in Moodle export varies depending on number of groups in use
 
+				# create User class from compiled info
 				new_user = User(
 					user_id,
 					user['First name'] + ' ' + user['Surname'],
 					class_ids,
-					user_groups
+					user_groups,
+					user_groupings
 				)
 				# TODO integrate into above
 				new_user.email = user['Email address']
@@ -1233,7 +1253,7 @@ class MoodleUpdater:
 					groups_dict[group] = [grouping]
 
 		# export data to file
-		with open(output_path, 'w') as f:
+		with open(output_path.replace('.csv', '_groupings.json'), 'w') as f:
 			f.write( json.dumps(groups_dict, sort_keys=True, indent=4) )
 
 		print('INFO: Grouping data export complete.')
@@ -1494,7 +1514,7 @@ class MoodleUpdater:
 
 		print(f'INFO: Added section named {section_info["name"]}.')
 
-	def export_groups_list (self, project_list):
+	def export_default_groups_list (self, project_list):
 		""" Generates a csv file for importing into Moodle with basic group and grouping setup """
 		
 		output_path = self.csv_file.replace('.csv', '-groups.csv')

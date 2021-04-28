@@ -18,13 +18,11 @@ A script to automate updating MS Teams based on Moodle input
 - Integrate user_whitelist into default users list
 	- Requires easy way to filter out staff
 - Standardise the use of dicts and/or lists as input to methods
-- Add extra data to student User
-	- Moodle groupings
+	- At the moment, dicts seem to be dominant
 - Allow searching by class id and group(ing) data.
 	- a filter function might ideally take 2+ search terms
 	- current `find\_users` method could be chained to achieve multiple search terms in `x AND y` fashion, not `OR` or `ANY`.
-- Modify `update_channel` to allow syncing owners only (i.e., role based filtering and adding)
-- Do not require input path for class (work that into the import function)
-- Make log function available outside of teams_updater class (for example to the Moodle part)
-- Make teamsupdater connect 'lazy loading' to simplify custom scripts, maybe through a lazy_connect method so we keep the option to directly get going
+- Do not require input path for teams\_updater class (work that into the import function)
+- Make log function available outside of teams\_updater class (for example for use in the Moodle class)
 - Change name to lms_updater and maybe split out into separate files, making it more a library?
+- Login procedure for some of the classes is the same so standardise, or make a base class for them
