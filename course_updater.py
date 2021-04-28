@@ -391,11 +391,10 @@ class TeamsUpdater:
 		# master user list (idem, a dict not a list)
 		self.user_list       = {}
 
-		# use existing external process to connect to powershell or create new one
-		if (process is not None):
-			self.process = process
-		else:
-			self.process = PowerShellWrapper()
+		# assign existing external process to connect to powershell
+		#    creating a new one, if no process is provided, is deferred until necessary
+		#    this significantly speeds up running the code as we can skip slow parts unless required
+		self.process = process
 
 		self.connected = False
 		self.username  = username
@@ -420,6 +419,11 @@ class TeamsUpdater:
 		A call to this method should be added anywhere a process command is sent to the Teams backend.
 		By only connecting when required, we skip the time-consuming login whenever possible.
 		"""
+		# first, ensure we have a working process
+		if (self.process is None):
+			self.process = PowerShellWrapper()
+
+		# then, ensure the process is connected to Teams in the cloud
 		if (self.connected == False):
 			self.connected = self.process.connect_to_teams('automated', self.username, self.password)
 
