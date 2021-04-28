@@ -501,7 +501,7 @@ class TeamsUpdater:
 		count_total = count_students + count_instructors + count_unknown
 		self.log(f'Imported data on {count_total} users (students: {count_students}, instructors: {count_instructors}, unknown: {count_unknown}).\n\n')
 
-	def export_student_list (self, project_list, tech_stream_list=None, terms=None):
+	def export_student_list (self, project_list, tech_stream_list=None, replace_terms=None):
 		""" Exports a list of students with project (and optional tech stream) information """
 
 		# assume course code is first thing in path, for example: engg1000-title-2021-t1.csv
@@ -512,13 +512,13 @@ class TeamsUpdater:
 		with open(output_path, 'w') as f:
 			# write out header
 			header = 'Student zID,Student name,Email address,Class IDs,Course,Course coordinator,Course coordinator zID,Course coordinator email,Project,Project coordinator,Project coordinator zID,Project coordinator email,Project class,Project mentor,Project mentor zID,Project mentor email,Tech stream,Tech stream coordinator,Tech stream coordinator zID,Tech stream coordinator email,Tech stream mentor,Tech stream mentor zID,Tech stream mentor email'
-			if (terms != None):
-				if (terms['Project']):
-					header = header.replace('Project',     terms['Project'])
-				if (terms['Mentor']):
-					header = header.replace('Mentor',      terms['Mentor'])
-				if (terms['Tech stream']):
-					header = header.replace('Tech stream', terms['Tech stream'])
+			if (replace_terms != None):
+				if (replace_terms['Project']):
+					header = header.replace('Project',     replace_terms['Project'])
+				if (replace_terms['Mentor']):
+					header = header.replace('Mentor',      replace_terms['Mentor'])
+				if (replace_terms['Tech stream']):
+					header = header.replace('Tech stream', replace_terms['Tech stream'])
 			f.write(header)
 			
 			# iterate over all students in the list
