@@ -1526,21 +1526,20 @@ class LMUpdater:
 if __name__ == '__main__':
 	"""
 	This is a default use case
-	Best practice is to create a new script file, import this one and make it work for your use case.
+	Best practice is to create a new script file, import this script's classes there, and make it work for your use case.
 	"""
+	# get login info
 	login = LoginData()
 
-	# with MoodleUpdater(54605, login.username, login.password) as mu:
-	# 	my_path = mu.get_users_csv()
+	# get data from Moodle
+	moodle_course_id = 54605
+
+	with MoodleUpdater(moodle_course_id, login.username, login.password) as mu:
+		my_path = mu.get_users_csv()
 
 	# basic operation by default
-	with TeamsUpdater(my_path, my_user_whitelist) as tu:
-		# connect at the start - everything else depends on this working
-		tu.connect('automated', login.username, login.password)
-		
+	with TeamsUpdater(my_path, my_user_whitelist, username=login.username, password=login.password) as tu:
 		# import data first - later steps build on this
 		tu.import_user_list()
-		# tu.get_channels_user_list()
-
-		# sync up channels - with many users, this takes a long time (approx 8 commands/minute)
-		# tu.update_channels()
+		
+		# do other things
