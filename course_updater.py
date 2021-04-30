@@ -95,7 +95,7 @@ class LoginData:
 # -----------------------------------------------------------------------------
 # default input variables (as examples only here)
 
-""" path to Moodle-exported CSV file """
+""" path to Moodle-exported CSV file (default given here, override with a suitable path) """
 my_path = 'desn2000-engineering-design---professional-practice---2020-t3.csv'
 
 
@@ -536,7 +536,7 @@ class TeamsUpdater:
 
 		with open(output_path, 'w') as f:
 			# write out header
-			header = 'Student zID,Student name,Email address,Class IDs,Course,Course coordinator,Course coordinator zID,Course coordinator email,Project,Project coordinator,Project coordinator zID,Project coordinator email,Project class,Project mentor,Project mentor zID,Project mentor email,Tech stream,Tech stream coordinator,Tech stream coordinator zID,Tech stream coordinator email,Tech stream mentor,Tech stream mentor zID,Tech stream mentor email'
+			header = 'Student zID,Student name,Email address,Class IDs,Course,Course coordinator,Course coordinator zID,Course coordinator email,Project,Project coordinator,Project coordinator zID,Project coordinator email,Project class,Project mentor,Project mentor zID,Project mentor email,Project team,Tech stream,Tech stream coordinator,Tech stream coordinator zID,Tech stream coordinator email,Tech stream mentor,Tech stream mentor zID,Tech stream mentor email'
 			if (replace_terms != None):
 				if (replace_terms['Project']):
 					header = header.replace('Project',     replace_terms['Project'])
@@ -565,6 +565,7 @@ class TeamsUpdater:
 				pcoordinator_em = '-'
 
 				pclass          = '-'
+				pteam           = '-'
 				pmentor         = '-'
 				pmentor_id      = '-'
 				pmentor_em      = '-'
@@ -589,11 +590,11 @@ class TeamsUpdater:
 							p = project_list[pkey]
 							
 							# main_class_id may not exists for courses where it's irrelevant
-							if (p['main_class_id'] and p['main_class_id'] == int(g)):
+							if ('main_class_id' in p and p['main_class_id'] == int(g)):
 								project = pkey
 								# if matching project is found, no need to continue the for loop trying other projects
 								break
-							else:
+							elif ('classes' in p):
 								for cl in p['classes']:
 									if (cl['class_id'] == int(g)):
 										if (cl['name'].find('LAB') != -1):
@@ -652,6 +653,9 @@ class TeamsUpdater:
 								pmentor_id = mu.id
 								pmentor_em = mu.email
 
+					if (g.lower().find('team') != -1):
+						pteam = g.replace('Project ','')
+
 					if (tech_stream_list is not None):
 						if (g.find('Technical Stream Group - ') != -1):
 							tech_stream = g.replace('Technical Stream Group - ','').replace(' (OnCampus)','').replace(' (Online)','')
@@ -701,7 +705,7 @@ class TeamsUpdater:
 							tcoordinator_em = tcoordinator_em.replace('-, ','')
 
 				# --- finally, write output for this student
-				f.write(f'\n{s.id},{s.name},{s.email},"{",".join(map(str,s.class_ids))}",{course},"{ccoordinator}","{ccoordinator_id}","{ccoordinator_em}",{project},"{pcoordinator}","{", ".join(pcoordinator_id)}","{pcoordinator_em}","{pclass}","{pmentor}","{pmentor_id}","{pmentor_em}","{tech_stream}","{tcoordinator}","{", ".join(tcoordinator_id)}","{tcoordinator_em}","{tmentor}","{tmentor_id}","{tmentor_em}"')
+				f.write(f'\n{s.id},{s.name},{s.email},"{",".join(map(str,s.class_ids))}",{course},"{ccoordinator}","{ccoordinator_id}","{ccoordinator_em}",{project},"{pcoordinator}","{", ".join(pcoordinator_id)}","{pcoordinator_em}","{pclass}","{pmentor}","{pmentor_id}","{pmentor_em}","{pteam}","{tech_stream}","{tcoordinator}","{", ".join(tcoordinator_id)}","{tcoordinator_em}","{tmentor}","{tmentor_id}","{tmentor_em}"')
 
 			self.log(f'Exported student list to {output_path}\n\n')
 
@@ -1215,7 +1219,10 @@ class MoodleUpdater:
 		""" TODO extracts grouping info and exports to csv """
 		print('INFO: Getting grouping data from Moodle...')
 		
+		# go to grouping overview page
 		self.browser.visit(f'https://moodle.telt.unsw.edu.au/group/groupings.php?id={self.course_id}')
+
+		time.sleep(5)
 
 		# structure of the groupings table
 		#<table class="generaltable">  <-- class occurs only once so it's unique
