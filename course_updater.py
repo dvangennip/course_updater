@@ -452,8 +452,11 @@ class TeamsUpdater:
 		groups_dict       = {}
 
 		# before importing user data, get grouping data ready for later merging
-		with open(self.data_path.replace('.csv', '_groupings.json'), 'r') as fg:
-			groups_dict = json.loads( fg.read() )
+		try:
+			with open(self.data_path.replace('.csv', '_groupings.json'), 'r') as fg:
+				groups_dict = json.loads( fg.read() )
+		except FileNotFoundError as e:
+			self.log(e, 'ERROR')
 		
 		# open and read CSV file - assumes existence of columns named Username (for zID), First Name, Surname, and a few more
 		with open(self.data_path) as fs:
