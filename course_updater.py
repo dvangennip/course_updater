@@ -890,10 +890,31 @@ class TeamsUpdater:
 
 		self.log(f'Created channel {channel_name} in Team {team_id}')
 
-		# if all good, set owners (only relevant for private channels)
-		if (channel_type == 'Private'):
-			time.sleep(30)  # adding owners immediately after creation tends to cause 'channel not found' errors, a delay may helpl
-			self.add_users_to_channel(team_id, channel_name, owners, role='Owner')
+	def set_channel (self, team_id, channel_name, new_channel_name=None, description=None):
+		""" adjust name and description of an existing channel """
+		self.ensure_connected()
+
+		# only continue if there is something to adjust
+		if (new_channel_name is None and description is None):
+			return False
+
+		new_name = ''
+		if (new_channel_name != None):
+			new_name = f' -NewDisplayName "{new_channel_name}"'
+
+		desc = ''
+		if (description != None):
+			desc = f' -Description "{description}"'
+
+		# edit channel
+		response = self.process.run_command(
+			f'Set-TeamChannel -GroupId {team_id} -CurrentDisplayName "{channel_name}" {new_name}{desc}'
+		)
+
+		# TODO parse response
+		#Set-TeamChannel: Channel not found
+
+		self.log(f'Edited channel {channel_name} in Team {team_id}')
 
 	def get_channels_user_list (self, channels_list, role='All'):
 		""" TODO untested and unused at the moment """
