@@ -762,25 +762,37 @@ class TeamsUpdater:
 			return False
 		else:
 			# feed response data into list
-			user_list = {}
+			user_list = self._parse_response_users(response, team_id, print_users=True)
 
-			for d in response:
-				print(d)
-				userid = d['User'].lower().replace('@ad.unsw.edu.au','')  # 'User ' = accountname@domain
-				user_list[userid] = User(
-					userid,     # zID
-					d['Name'],  # name       
-					[],         # unknown class ids
-					[],         # unknown groups
-					[],         # unknown groupings
-					d['User']
-				)
+			return user_list
 
-			print(f'USER LIST for {team_id}')
+	def _parse_response_users (self, response_data, set_name, print_users=False):
+		""" internal method for parsing Teams json.parsed response data """
+		user_list     = {}
+		response_data = response_data
+
+		# single user isn't given as a list, just the user dict, so wrap in list
+		if (isinstance(response_data, dict)):
+			response_data = [response_data]
+
+		for d in response_data:
+			userid = d['User'].lower().replace('@ad.unsw.edu.au','')  # 'User ' = accountname@domain
+			user_list[userid] = User(
+				userid,     # zID
+				d['Name'],  # name       
+				[],         # unknown class ids
+				[],         # unknown groups
+				[],         # unknown groupings
+				d['User']
+				# TODO include role data?
+			)
+
+		if (print_users):
+			print(f'USER LIST for {set_name}')
 			for k in user_list:
 				print(user_list[k])
 
-			return user_list
+		return user_list 
 
 	def remove_users_from_team (self, team_id, users=[User], role='Member'):
 		""" coonvenience function to remove a list of users in one go """
@@ -825,7 +837,9 @@ class TeamsUpdater:
 		count_removed = 0
 		count_added   = 0
 
-		team_user_list = team_user_list
+		desired_user_list = self.ensure_dict(desired_user_list)
+		team_user_list    = self.ensure_dict(team_user_list)
+
 		if (team_user_list is None):
 			# get the team user list
 			team_user_list = self.get_team_user_list(team_id, role)
@@ -909,22 +923,7 @@ class TeamsUpdater:
 			return False
 		else:
 			# feed data into list
-			member_list = {}
-
-			for d in response:
-				userid = d['User'].lower().replace('@ad.unsw.edu.au','')  # 'User' = accountname@domain
-				member_list[userid] = User(
-					userid,     # zID
-					d['Name'],  # name
-					[],         # unknown class ids
-					[],         # unknown groups
-					[],         # unknown groupings
-					d['User']
-				)
-
-			print(f'USER LIST for {channel_name}')
-			for u in member_list:
-				print(member_list[u])
+			member_list = self._parse_response_users(response, channel_name, print_users=True)
 
 			return member_list
 
@@ -992,7 +991,9 @@ class TeamsUpdater:
 		count_removed = 0
 		count_added   = 0
 
-		channel_user_list = channel_user_list
+		desired_user_list = self.ensure_dict(desired_user_list)
+		channel_user_list = self.ensure_dict(channel_user_list)
+
 		if (channel_user_list is None):
 			# get the team user list
 			channel_user_list = self.get_channel_user_list(team_id, channel_name, role)
@@ -1038,8 +1039,7 @@ class TeamsUpdater:
 			list_to_search = self.user_list
 
 		# check if list is actually a dict, and if so convert
-		if (isinstance(list_to_search, dict)):
-			list_to_search = list(list_to_search.values())
+		list_to_search = self.ensure_list(list_to_search)
 
 		for user in list_to_search:
 			# check whether we match (part of) a string or other types of values
@@ -1073,6 +1073,32 @@ class TeamsUpdater:
 				results_dict[result.id] = result
 			return results_dict
 				
+	def ensure_list (self, input_list):
+		""" if input is actually a dict, convert to a list and return """
+		if (input_list is None):
+			return None
+
+		if (isinstance(input_list, dict)):
+			return list(input_list.values())
+		else:
+			return input_list
+
+	def ensure_dict (self, input_dict):
+		""" if input is actually a list, convert to a dict and return """
+		if (input_dict is None):
+			return None
+		
+		if (isinstance(input_dict, list)):
+			d = {}
+			for index, li in enumerate(input_dict):
+				if (li.id):
+					d[li.id] = li
+				else:
+					d[index] = li
+			return d
+		else:
+			return input_dict
+
 	def log (self, action='', type='INFO'):
 		print(f'{type} - {action}')
 		self.log_file.write(f'\n{datetime.now()} {type} - {action}')
