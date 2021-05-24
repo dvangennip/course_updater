@@ -1592,7 +1592,7 @@ class LMUpdater:
 	Class that enables a small number of repetitive operations on the Learning Management system via myUNSW
 	"""
 	def __init__ (self, course_name, course_term, username, password):
-		self.course_name = course_id
+		self.course_name = course_name
 		self.course_term = course_term
 		self.logged_in = False
 
@@ -1605,8 +1605,33 @@ class LMUpdater:
 		"""
 		print('INFO: Logging in to Learning Management on myUNSW...')
 
+	def close (self):
+		""" quit the browser so  it cleans up properly """
+		pass
+		# self.browser.quit()
+
+	def __enter__ (self):
+		""" enables the use of the `with` statement """
+		return self
+
+	def __exit__ (self, type, value, traceback):
+		""" so we can exit after using the `with` statement """
+		self.close()
+
+		if (traceback is None):  # no exception occured
+			pass
+		else:
+			return False  # re-raise the exception to be transparent
+
 	def update_staff_list (self, staff_list):
-		""" Update staff members """
+		"""
+		Update staff members
+
+		staff_list is a set of dicts {} with the following parameters:
+		  id           : (required) String with unique username
+		  role         : (required) String, one of Instructor|Grading Tutor|Non-Grading Tutor|Teaching Assistant|Blind Marker|Staff Auditor
+		  name         : (optional) String of text
+		"""
 
 		#self.browser.visit('https://my.unsw.edu.au/academic/learningManagement/lmsModuleSearch.xml')
 		#select name 'termSrch', select value '5216' for '5216 Term 2 2021'
@@ -1621,26 +1646,28 @@ class LMUpdater:
 		# self.browser.visit('https://my.unsw.edu.au/academic/learningManagement/lmsStaffRoles.xml')
 
 		# parse table
-		staff_listed = {}
+		staff_on_lm = {}
 		# for each tr with class 'data', extract td with class 'data', gives: staff zIDs, name, role (select with name 'role-0')
-		# staff_listed[zID] = {}
+		# staff_on_lm[zID] = {}
 
-		#for staff_listed but not in staff_list
+		#for staff_on_lm but not in staff_list
 		# remove with input submit 'bsdsSubmit-deleteStaff0'
 
-		# for staff_list and staff_listed
+		# for staff_list and staff_on_lm
 		# adjust role if it's not matching
 		
-		#for staff_list but not in staff_listed
+		#for staff_list but not in staff_on_lm
 		# add by searching zID
-		# fill input text 'staffId'
+		# fill input text 'staffId' with staff['id'].replace('z','')
 		# click input submit 'bsdsSubmit-searchID'
 		#time.sleep(5)
-		# pick from list of names found
+		# pick from list of names found (id is unique, so list should be one)
 		# iterate until found
 		# click to add
 		#time.sleep(5)
 		# set their role here, or let it be set in step 2 if we loop there?
+
+		# when done, save and submit
 		
 
 
