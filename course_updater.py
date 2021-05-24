@@ -913,6 +913,9 @@ class TeamsUpdater:
 
 		# TODO parse response
 		# if (response.find(''))
+		#New-TeamChannel: Error occurred while executing 
+		#Code: BadRequest
+		#Message: Channel name already existed, please use other name.
 
 		self.log(f'Created channel {channel_name} in Team {team_id}')
 
@@ -953,6 +956,8 @@ class TeamsUpdater:
 		""" Get list of current users in channel, and return a dict with user ids as the keys """
 		self.ensure_connected()
 
+		print(team_id, channel_name, role)
+
 		# add filter if required
 		role_filter = ''
 		if (role != 'All'):
@@ -977,7 +982,7 @@ class TeamsUpdater:
 	def add_users_to_channel (self, team_id, channel_name, users=[User], role='Member'):
 		""" convenience function to add a list of users to a channel """
 		for user in users:
-			self.add_user_to_channel(team_id, channel_name, users[user], role)
+			self.add_user_to_channel(team_id, channel_name, user, role)
 
 	def add_user_to_channel (self, team_id, channel_name, user=User, role='Member'):
 		""" add user to channel """
