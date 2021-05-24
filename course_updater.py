@@ -29,6 +29,9 @@ import json
 
 @dataclass
 class User:
+	"""
+	Class that holds user data
+	"""
 	id       : str
 	name     : str
 	class_ids: []
@@ -59,7 +62,8 @@ class User:
 class LoginData:
 	"""
 	very basic class that safely stores login data (handy for repeated use).
-	once login data is passed, there's no need to repeat it.
+	once login data is passed, there's no need to repeat it, thus no need
+	to store passwords in any clear text file.
 	"""
 	def __init__ (self, username=None, password=None):
 		self.app_id = 'PY_TEAMS_UPDATER'
@@ -394,6 +398,9 @@ class TeamsUpdater:
 		# master user list (idem, a dict not a list)
 		self.user_list       = {}
 
+		# user ids that should not be touched as these are uni-managed service accounts
+		self.exclusion_ids = ['svco365teamsmanage']
+
 		# assign existing external process to connect to powershell
 		#    creating a new one, if no process is provided, is deferred until necessary
 		#    this significantly speeds up running the code as we can skip slow parts unless required
@@ -542,6 +549,7 @@ class TeamsUpdater:
 					header = header.replace('Project',     replace_terms['Project'])
 				if (replace_terms['Mentor']):
 					header = header.replace('Mentor',      replace_terms['Mentor'])
+					header = header.replace('mentor',      replace_terms['Mentor'].lower())
 				if (replace_terms['Tech stream']):
 					header = header.replace('Tech stream', replace_terms['Tech stream'])
 			f.write(header)
@@ -686,23 +694,27 @@ class TeamsUpdater:
 					pcoordinator_id = project_list[project]['coordinators']
 					
 					for index, pid in enumerate(pcoordinator_id):
-						pcoordinator    += ', ' + self.user_whitelist[pid].name
-						pcoordinator_em += ', ' + self.user_whitelist[pid].email
+						# if user is in list but not on Moodle, it may not be in whitelist yet
+						if (pid in self.user_whitelist):
+							pcoordinator    += ', ' + self.user_whitelist[pid].name
+							pcoordinator_em += ', ' + self.user_whitelist[pid].email
 
-						if (index == 0):
-							pcoordinator    = pcoordinator.replace('-, ','')
-							pcoordinator_em = pcoordinator_em.replace('-, ','')
+							if (index == 0):
+								pcoordinator    = pcoordinator.replace('-, ','')
+								pcoordinator_em = pcoordinator_em.replace('-, ','')
 
 				if (tech_stream_list is not None and tech_stream != '-'):
 					tcoordinator_id = tech_stream_list[tech_stream]['coordinators']
 					
 					for index, tid in enumerate(tcoordinator_id):
-						tcoordinator    += ', ' + self.user_whitelist[tid].name
-						tcoordinator_em += ', ' + self.user_whitelist[tid].email
+						# if user is in list but not on Moodle, it may not be in whitelist yet
+						if (pid in self.user_whitelist):
+							tcoordinator    += ', ' + self.user_whitelist[tid].name
+							tcoordinator_em += ', ' + self.user_whitelist[tid].email
 
-						if (index == 0):
-							tcoordinator    = tcoordinator.replace('-, ','')
-							tcoordinator_em = tcoordinator_em.replace('-, ','')
+							if (index == 0):
+								tcoordinator    = tcoordinator.replace('-, ','')
+								tcoordinator_em = tcoordinator_em.replace('-, ','')
 
 				# --- finally, write output for this student
 				f.write(f'\n{s.id},{s.name},{s.email},"{",".join(map(str,s.class_ids))}",{course},"{ccoordinator}","{ccoordinator_id}","{ccoordinator_em}",{project},"{pcoordinator}","{", ".join(pcoordinator_id)}","{pcoordinator_em}","{pclass}","{pmentor}","{pmentor_id}","{pmentor_em}","{pteam}","{tech_stream}","{tcoordinator}","{", ".join(tcoordinator_id)}","{tcoordinator_em}","{tmentor}","{tmentor_id}","{tmentor_em}"')
@@ -803,6 +815,10 @@ class TeamsUpdater:
 		""" removing a user as role='Owner' keeps them as a team member """
 		self.ensure_connected()
 
+		# skip the uni-added service accounts
+		if (user.id in self.exclusion_ids):
+			return False
+
 		response = self.process.run_command(
 			f'Remove-TeamUser -GroupId {team_id} -User {user.id}@ad.unsw.edu.au -Role {role}'
 		)
@@ -810,16 +826,22 @@ class TeamsUpdater:
 		self.log(f'Team {team_id}: Removed {user} as {role}')
 
 		# TODO check response
+		#Remove-TeamUser: Error occurred while executing 
+		#Remove-TeamUser: Last owner cannot be removed from the team
 		return True
 
 	def add_users_to_team (self, team_id, users=[User], role='Member'):
 		""" coonvenience function to add a list of users in one go """
-		for u in users:
-			self.add_user_to_team(team_id, u, role)
+		for user in users:
+			self.add_user_to_team(team_id, user, role)
 
 	def add_user_to_team (self, team_id, user=User, role='Member'):
 		""" Adds a user to the team. Add an existing member as an `Owner` to elevate their role. """
 		self.ensure_connected()
+
+		# skip the uni-added service accounts
+		if (user.id in self.exclusion_ids):
+			return False
 
 		response = self.process.run_command(
 			f'Add-TeamUser -GroupId {team_id} -User {user.id}@ad.unsw.edu.au -Role {role}'
@@ -845,8 +867,12 @@ class TeamsUpdater:
 			team_user_list = self.get_team_user_list(team_id, role)
 
 		# check current teams list against desired list
-		#	remove any not on desired list (but check against whitelist, those are save from deletion)
+		#	remove any not on desired list
 		for user_in_teams_list in team_user_list:
+			# skip the uni-added service accounts
+			if (user_in_teams_list in self.exclusion_ids): 
+				continue
+
 			if (user_in_teams_list not in desired_user_list):
 				# no role is indicated, so removal should remove the user rather than demote them from owner to member
 				response = self.remove_user_from_team(team_id, team_user_list[user_in_teams_list])
@@ -871,7 +897,7 @@ class TeamsUpdater:
 
 		return (count_removed, count_added)
 
-	def create_channel (self, team_id, channel_name, channel_type='Standard', owners=[], description=None):
+	def create_channel (self, team_id, channel_name, channel_type='Standard', description=None):
 		""" Create a new channel in a team with the specific name and type """
 		self.ensure_connected()
 
@@ -957,6 +983,10 @@ class TeamsUpdater:
 		""" add user to channel """
 		self.ensure_connected()
 
+		# skip the uni-added service accounts
+		if (user.id in self.exclusion_ids):
+			return False
+
 		response = self.process.run_command(
 			f'Add-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}" -User {user.id}@ad.unsw.edu.au'
 		)
@@ -980,6 +1010,10 @@ class TeamsUpdater:
 	def remove_user_from_channel (self, team_id, channel_name, user=User, role='Member'):
 		""" remove user from specified channel """
 		self.ensure_connected()
+
+		# skip the uni-added service accounts
+		if (user.id in self.exclusion_ids):
+			return False
 
 		# remove from to relevant channel
 		response = self.process.run_command(
@@ -1022,6 +1056,10 @@ class TeamsUpdater:
 		# check current teams list against desired list
 		#	remove any not on desired list (but check against whitelist, those are save from deletion)
 		for user_in_teams_list in channel_user_list:
+			# skip the uni-added service accounts
+			if (user_in_teams_list in self.exclusion_ids): 
+				continue
+
 			if (user_in_teams_list not in desired_user_list and user_in_teams_list not in self.user_whitelist):
 				# no role is indicated, so removal should remove the user rather than demote them from owner to member
 				response = self.remove_user_from_channel(team_id, channel_name, channel_user_list[user_in_teams_list])
