@@ -619,9 +619,11 @@ class TeamsUpdater:
 											
 											# add demonstrator info
 											for did in cl['demonstrators']:
-												tmentor    += ', ' + self.user_whitelist[did].name
-												tmentor_id += ', ' + did
-												tmentor_em += ', ' + self.user_whitelist[did].email
+												# ensure there is indeed data on a listed demonstrator
+												if (did in self.user_whitelist):
+													tmentor    += ', ' + self.user_whitelist[did].name
+													tmentor_id += ', ' + did
+													tmentor_em += ', ' + self.user_whitelist[did].email
 											
 											tech_stream = tech_stream.replace(    '-, ', '')
 											tmentor     = tmentor.replace(   '-, ', '')
@@ -632,9 +634,11 @@ class TeamsUpdater:
 											
 											# add demonstrator info
 											for did in cl['demonstrators']:
-												pmentor    += ', ' + self.user_whitelist[did].name
-												pmentor_id += ', ' + did
-												pmentor_em += ', ' + self.user_whitelist[did].email
+												# ensure there is indeed data on a listed demonstrator
+												if (did in self.user_whitelist):
+													pmentor    += ', ' + self.user_whitelist[did].name
+													pmentor_id += ', ' + did
+													pmentor_em += ', ' + self.user_whitelist[did].email
 											
 											pclass     = pclass.replace(    '-, ', '')
 											pmentor    = pmentor.replace(   '-, ', '')
