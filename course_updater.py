@@ -22,6 +22,7 @@ import getpass
 from splinter import Browser
 import keyring
 import json
+import sys
 
 
 # -----------------------------------------------------------------------------
@@ -94,6 +95,14 @@ class LoginData:
 
 		# store
 		keyring.set_password(self.app_id, self.username, self.password)
+
+
+class Notifier:
+	""" basic class to send OS-style notifications """
+	@staticmethod
+	def notify (title='Updater notification', message='', sound='Submarine'):
+		if (sys.platform == 'darwin'):
+			os.system(f"""osascript -e 'display notification "{message}" with title "{title}" sound name "{sound}"'""")
 
 
 # -----------------------------------------------------------------------------
@@ -1284,6 +1293,7 @@ class MoodleUpdater:
 		# it is assumed the file is now automatically downloaded to the current working folder
 		#   however, there is no way of knowing the file has finished downloading
 		#   so this needs some intervention...
+		Notifier.notify('Moodle csv download', 'Check download status and confirm')
 		got_file = input('Downloaded file? [Y]es or [N]o: ').lower()
 
 		if ('y' in got_file):
