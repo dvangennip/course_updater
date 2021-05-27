@@ -526,7 +526,7 @@ class TeamsUpdater:
 						new_user.owner = True
 
 						# don't overwrite prior whitelist user data
-						if (user_id not in self.user_whitelist.keys()):
+						if (user_id not in self.user_whitelist):
 							self.user_whitelist[user_id] = new_user
 
 						count_instructors += 1
