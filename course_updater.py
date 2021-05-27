@@ -766,6 +766,49 @@ class TeamsUpdater:
 
 			self.add_users_to_team(response_group_id, owners, 'Owner')
 
+	def set_team (self, team_id, new_name=None, description=None):
+		""" adjust name and description of an existing team """
+		self.ensure_connected()
+
+		# only continue if there is something to adjust
+		if (new_name is None and description is None):
+			return False
+
+		name = ''
+		if (new_name != None):
+			name = f' -DisplayName "{new_name}"'
+
+		desc = ''
+		if (description != None):
+			desc = f' -Description "{description}"'
+
+		# edit team
+		response = self.process.run_command(
+			f'Set-Team -GroupId {team_id}{name}{desc}'
+		)
+
+		# TODO parse response
+		#Set-Team: Team not found
+
+		self.log(f'Edited Team {team_id}')
+
+	def set_team_picture (self, team_id, image_path):
+		""" update the team picture """
+		self.ensure_connected()
+
+		if (!os.path.exists(image_path)):
+			self.log(f'Image to set Team picture for {team_id} does not exist', 'ERROR')
+			return False
+
+		# edit team
+		response = self.process.run_command(
+			f'Set-TeamPicture -GroupId {team_id} -ImagePath {image_path}'
+		)
+
+		# TODO parse response
+
+		self.log(f'Updated Team picture for {team_id}')
+
 	def get_team_user_list (self, team_id, role='All'):
 		"""
 		Get list of current users in team
