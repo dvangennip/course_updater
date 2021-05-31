@@ -1131,9 +1131,7 @@ class TeamsUpdater:
 		# add any not in teams list but on desired list
 		for user_in_desired_list in desired_user_list:
 			if (user_in_desired_list not in channel_user_list):
-				# TODO manage role
-				response = self.add_user_to_channel(team_id, channel_name, desired_user_list[user_in_desired_list])
-
+				# manage by role
 				if (role == 'All'):
 					# follow User role
 					response = self.add_user_to_channel(team_id, channel_name, desired_user_list[user_in_desired_list], role=desired_user_list[user_in_desired_list].role())
