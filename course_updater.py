@@ -796,7 +796,7 @@ class TeamsUpdater:
 		""" update the team picture """
 		self.ensure_connected()
 
-		if (!os.path.exists(image_path)):
+		if (os.path.exists(image_path) is False):
 			self.log(f'Image to set Team picture for {team_id} does not exist', 'ERROR')
 			return False
 
