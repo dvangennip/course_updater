@@ -923,7 +923,9 @@ class TeamsUpdater:
 			success = False
 			self.log(f'Team {team_id}: Could not add {user} as {role}', 'ERROR')
 
-	def update_team (self, team_id, desired_user_list, team_user_list=None, role='All'):
+		return success
+
+	def update_team (self, team_id, desired_user_list, team_user_list=None, role='All', remove_allowed=True):
 		""" add/remove users to match the `desired_user_list` """
 		self.ensure_connected()
 
@@ -946,10 +948,13 @@ class TeamsUpdater:
 
 			if (user_in_teams_list not in desired_user_list):
 				# no role is indicated, so removal should remove the user rather than demote them from owner to member
-				response = self.remove_user_from_team(team_id, team_user_list[user_in_teams_list])
-				
-				if (response):
-					count_removed += 1
+				if (remove_allowed):
+					response = self.remove_user_from_team(team_id, team_user_list[user_in_teams_list])
+					
+					if (response):
+						count_removed += 1
+				else:
+					self.log(f'Team {team_id}: Skipped removing {user} as {role}')
 				
 		# add any not in teams list but on desired list
 		for user_in_desired_list in desired_user_list:
@@ -1121,7 +1126,7 @@ class TeamsUpdater:
 		
 		return success
 
-	def update_channel (self, team_id, channel_name, desired_user_list, channel_user_list=None, role='All'):
+	def update_channel (self, team_id, channel_name, desired_user_list, channel_user_list=None, role='All', remove_allowed=True):
 		self.log(f"Updating channel {channel_name} ({len(desired_user_list)} enrolments)")
 
 		count_removed = 0
@@ -1142,11 +1147,14 @@ class TeamsUpdater:
 				continue
 
 			if (user_in_teams_list not in desired_user_list and user_in_teams_list not in self.user_whitelist):
-				# no role is indicated, so removal should remove the user rather than demote them from owner to member
-				response = self.remove_user_from_channel(team_id, channel_name, channel_user_list[user_in_teams_list])
-				
-				if (response):
-					count_removed += 1
+				if (remove_allowed):
+					# no role is indicated, so removal should remove the user rather than demote them from owner to member
+					response = self.remove_user_from_channel(team_id, channel_name, channel_user_list[user_in_teams_list])
+					
+					if (response):
+						count_removed += 1
+				else:
+					self.log(f'Channel {channel_name}: Skipping removing {user} as {role}')
 				
 		# add any not in teams list but on desired list
 		for user_in_desired_list in desired_user_list:
