@@ -825,8 +825,13 @@ class TeamsUpdater:
 		)
 
 		# parse response
+		
+		# Get-TeamChannelUser: Error occurred while executing 
+		# Code: Forbidden
+
 		# if channel not found, stop
-		if (type(response) == 'str' and response.find('Team not found') != -1):
+		if (type(response) == 'str'):
+			 # if (response.find('Team not found') != -1):
 			return False
 		else:
 			# feed response data into list
@@ -879,12 +884,18 @@ class TeamsUpdater:
 			f'Remove-TeamUser -GroupId {team_id} -User {user.id}@ad.unsw.edu.au -Role {role}'
 		)
 
-		self.log(f'Team {team_id}: Removed {user} as {role}')
+		success = True
 
 		# TODO check response
 		#Remove-TeamUser: Error occurred while executing 
 		#Remove-TeamUser: Last owner cannot be removed from the team
-		return True
+		if (len(response) == 0):
+			self.log(f'Team {team_id}: Removed {user} as {role}')
+		else:
+			success = False
+			self.log(f'Team {team_id}: Could not remove {user} as {role}')
+
+		return success
 
 	def add_users_to_team (self, team_id, users=[User], role='Member'):
 		""" coonvenience function to add a list of users in one go """
@@ -903,10 +914,14 @@ class TeamsUpdater:
 			f'Add-TeamUser -GroupId {team_id} -User {user.id}@ad.unsw.edu.au -Role {role}'
 		)
 
-		self.log(f'Team {team_id}: Added {user} as {role}')
-
 		# TODO check response
-		return True
+		success = True
+		#Request_ResourceNotFound
+		if (len(response) == 0):
+			self.log(f'Team {team_id}: Added {user} as {role}')
+		else:
+			success = False
+			self.log(f'Team {team_id}: Could not add {user} as {role}', 'ERROR')
 
 	def update_team (self, team_id, desired_user_list, team_user_list=None, role='All'):
 		""" add/remove users to match the `desired_user_list` """
@@ -1024,13 +1039,15 @@ class TeamsUpdater:
 			convert_json = True
 		)
 
-		# parse response
-		# if channel not found, stop
-		#note: 'Get-TeamChannelUser: Channel not found' isn't parseable json, so it craps out...
-		if (type(response) == 'str' and response.find('Channel not found') != -1):
+		# TODO parse response
+		if (type(response) == 'str'):
+			# if (response.find('Channel not found') != -1):
+			# 	pass
+			# elif: (response.find('Forbidden') != -1):
+			# 	pass
+			self.log(f'Channel {channel_name}: Could not get user list', 'ERROR')
 			return False
 		else:
-			# feed data into list
 			member_list = self._parse_response_users(response, channel_name, print_users=True)
 
 			return member_list
@@ -1060,11 +1077,13 @@ class TeamsUpdater:
 
 		# parse response
 		success = True
-		if (response.find('User is not found in the team.') != -1 or response.find('Could not find member.') != -1):
+		# empty response is sign of success, so check for that
+		if (len(response) == 0):
+			self.log(f'Channel {channel_name}: Added {user} as {role}')
+		else:
+			# if (response.find('User is not found in the team.') != -1 or response.find('Could not find member.') != -1 or response.find('Authorization_RequestDenied') !=-1):
 			success = False
 			self.log(f'Channel {channel_name}: Could not add {user} as {role}', 'ERROR')
-		else:
-			self.log(f'Channel {channel_name}: Added {user} as {role}')
 
 		return success
 
@@ -1084,9 +1103,13 @@ class TeamsUpdater:
 		success = True
 
 		# by default, no response means things went fine
-		if (len(response) != 0):
+		if (len(response) == 0):
+			self.log(f'Channel {channel_name}: Removed {user} as {role}')
+		else:
+			success = False
 			print(response)
-
+			self.log(f'Channel {channel_name}: Could not remove {user} as {role}', 'ERROR')
+		
 		# TODO parse response (as json will be easier)
 		# Remove-TeamChannelUser: Error occurred while executing 
 		# Code: NotFound
@@ -1096,9 +1119,6 @@ class TeamsUpdater:
 		# DateTimeStamp: 2020-09-19T23:46:30
 		# HttpStatusCode: NotFound
 		
-
-		self.log(f'Channel {channel_name}: Removed {user} as {role}')
-
 		return success
 
 	def update_channel (self, team_id, channel_name, desired_user_list, channel_user_list=None, role='All'):

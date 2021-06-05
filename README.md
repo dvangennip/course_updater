@@ -13,12 +13,16 @@ A script to automate updating MS Teams based on Moodle input
 	- Use on Windows may need some changes to filepaths, etc.
 
 ## TO DO
+- Add automatic ability to recognise Connect-MicrosoftTeams login account (zID) and add this to exclusion IDs to avoid accidental self-removal?
+	- alt idea: if this is actually desired, have a prompt to check and get approval -> add a current_user variable to check against
+- Error handling
+	- errors should go into the log
+	- add_user for example doesn't catch all errors, assumes things are fine besides known errors
+	- data output is unpredictable with ConvertToJson enabled but can cause crashes, so need to catch this properly
 - (optional) add remove_allowed flags to update_* methods so it can be used to add people if necessary, but not remove any
 	- (this allows other owners to add people when desired without that going through the script)
 - Refactor update scripts so multiple courses in one term can go into one script, reusing logins to speed up process
 	- may require separating logins from doing actual operations, e.g., in MoodleUpdater
-- Error handling
-	- data output is unpredictable with ConvertToJson enabled but can cause crashes, so need to catch this properly
 - Integrate user_whitelist into default users list
 	- Requires easy way to filter out staff
 - Allow searching by class id and group(ing) data.
