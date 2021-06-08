@@ -19,8 +19,6 @@ A script to automate updating MS Teams based on Moodle input
 	- errors should go into the log
 	- add_user for example doesn't catch all errors, assumes things are fine besides known errors
 	- data output is unpredictable with ConvertToJson enabled but can cause crashes, so need to catch this properly
-- (optional) add remove_allowed flags to update_* methods so it can be used to add people if necessary, but not remove any
-	- (this allows other owners to add people when desired without that going through the script)
 - Refactor update scripts so multiple courses in one term can go into one script, reusing logins to speed up process
 	- may require separating logins from doing actual operations, e.g., in MoodleUpdater
 - Integrate user_whitelist into default users list

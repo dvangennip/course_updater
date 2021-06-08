@@ -954,7 +954,7 @@ class TeamsUpdater:
 					if (response):
 						count_removed += 1
 				else:
-					self.log(f'Team {team_id}: Skipped removing {user} as {role}')
+					self.log(f'Team {team_id}: Skipped removing {team_user_list[user_in_teams_list]} as {role}')
 				
 		# add any not in teams list but on desired list
 		for user_in_desired_list in desired_user_list:
@@ -1115,7 +1115,7 @@ class TeamsUpdater:
 			print(response)
 			self.log(f'Channel {channel_name}: Could not remove {user} as {role}', 'ERROR')
 		
-		# TODO parse response (as json will be easier)
+		# TODO parse response
 		# Remove-TeamChannelUser: Error occurred while executing 
 		# Code: NotFound
 		# Message: Not Found
@@ -1154,7 +1154,7 @@ class TeamsUpdater:
 					if (response):
 						count_removed += 1
 				else:
-					self.log(f'Channel {channel_name}: Skipping removing {user} as {role}')
+					self.log(f'Channel {channel_name}: Skipping removing {channel_user_list[user_in_teams_list]} as {role}')
 				
 		# add any not in teams list but on desired list
 		for user_in_desired_list in desired_user_list:
