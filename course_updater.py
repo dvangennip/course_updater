@@ -374,12 +374,6 @@ class PowerShellWrapper:
 
 			return self.connected_to_teams
 
-	# TODO: not used at the moment
-	def parse_common_errors (self, input_string=''):
-		# TODO check for typical errors
-		if (input_string.find('You must call the Connect-MicrosoftTeams cmdlet before calling any other cmdlets.')):
-			return False
-
 
 class TeamsUpdater:
 	"""
