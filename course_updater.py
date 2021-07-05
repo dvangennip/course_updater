@@ -612,7 +612,7 @@ class TeamsUpdater:
 											tech_stream += f", {cl['name']}_{cl['class_id']}  [ {cl['description']} ]"
 											
 											# add demonstrator info
-											for did in cl['demonstrators']:
+											for did in cl['instructors']:
 												# ensure there is indeed data on a listed demonstrator
 												if (did in self.user_whitelist):
 													tmentor    += ', ' + self.user_whitelist[did].name
@@ -627,7 +627,7 @@ class TeamsUpdater:
 											pclass += f", {cl['name']}_{cl['class_id']}  [ {cl['description']} ]"
 											
 											# add demonstrator info
-											for did in cl['demonstrators']:
+											for did in cl['instructors']:
 												# ensure there is indeed data on a listed demonstrator
 												if (did in self.user_whitelist):
 													pmentor    += ', ' + self.user_whitelist[did].name
@@ -728,6 +728,34 @@ class TeamsUpdater:
 
 			self.log(f'Exported student list to {output_path}\n\n')
 
+	def export_class_list (self, project_list):
+		""" Exports a list of classes with demonstrator information """
+
+		# assume course code is first thing in path, for example: engg1000-title-2021-t1.csv
+		course = self.data_path[:self.data_path.find('-')]
+		
+		output_path = self.data_path.replace('.csv', '-classes.csv')
+
+		with open(output_path, 'w') as f:
+			# write out header
+			header = 'Stream,Activity,"Class ID","Time & Day",Instructor(s),"Instructor(s) zID"'
+			f.write(header)
+
+			# iterate over all the classes
+			for stream in project_list:
+				s = project_list[stream]
+
+				for clas in s['classes']:
+					
+					instructors = [] 
+					
+					for iid in clas['instructors']:
+						if (iid in self.user_whitelist):
+							instructors.append(self.user_whitelist[iid].name)
+
+					f.write(f'\n{stream},"{clas["name"]}",{clas["class_id"]},"{clas["description"]}","{", ".join(instructors)}","{", ".join(clas["instructors"])}"')
+
+		self.log(f'Exported class list to {output_path}\n\n')
 
 	def create_team (self, name, description='', visibility='Private', owners=[], template=None, info=''):
 		"""
