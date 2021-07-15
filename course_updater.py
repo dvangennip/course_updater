@@ -565,6 +565,8 @@ class TeamsUpdater:
 				if (len(s.class_ids) == 0):
 					continue
 
+				# setup variables we'll fill in further down
+
 				# TODO generalise this info
 				ccoordinator    = 'Ilpo Koskinen, Nick Gilmore, Domenique van Gennip'
 				ccoordinator_id = 'z3526743,z3418878,z3530763'
@@ -608,7 +610,11 @@ class TeamsUpdater:
 							elif ('classes' in p):
 								for cl in p['classes']:
 									if (cl['class_id'] == int(g)):
-										if (cl['name'].find('LAB') != -1):
+										# lectures are not included as classes
+										if (cl['name'].find('LE') != -1):
+											pass
+										# labs are handled separately from regular classes
+										elif (cl['name'].find('LAB') != -1):
 											tech_stream += f", {cl['name']}_{cl['class_id']}  [ {cl['description']} ]"
 											
 											# add demonstrator info
@@ -623,6 +629,7 @@ class TeamsUpdater:
 											tmentor     = tmentor.replace(   '-, ', '')
 											tmentor_id  = tmentor_id.replace('-, ', '')
 											tmentor_em  = tmentor_em.replace('-, ', '')
+										# regular classes
 										else:
 											pclass += f", {cl['name']}_{cl['class_id']}  [ {cl['description']} ]"
 											
