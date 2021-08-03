@@ -1558,8 +1558,12 @@ class MoodleUpdater:
 		time.sleep(10)
 
 		# expand all panes to simplify later steps
-		expand_el = self.browser.find_by_css('a[class=collapseexpand]')
-		expand_el.click()
+		# expand_el = self.browser.find_by_css('a[class=collapseexpand]')  # causes crash now...
+		expand_el = self.browser.links.find_by_text('Expand all')
+		try:
+			expand_el.click()
+		except:
+			pass  # skip if it does not exist, just means we've already expanded
 
 		# set fields
 		# category name
