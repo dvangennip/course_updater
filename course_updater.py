@@ -304,7 +304,7 @@ class PowerShellWrapper:
 				if (login_method == 'automated'):
 					# login via browser window but automate all actions
 					try:
-						b = Browser('firefox', headless=True)  # by default assumes firefox + geckodriver
+						b = Browser('firefox', headless=False, incognito=True)
 						b.visit('https://microsoft.com/devicelogin')
 
 						# begin connecting and get authentication code
@@ -438,7 +438,7 @@ class TeamsUpdater:
 
 		# then, ensure the process is connected to Teams in the cloud
 		if (self.connected == False):
-			self.connected = self.process.connect_to_teams('automated', self.username, self.password)
+			self.connected = self.process.connect_to_teams('default', self.username, self.password)
 
 		return self.connected
 	
@@ -1314,7 +1314,7 @@ class MoodleUpdater:
 			'browser.helperApps.alertOnEXEOpen'         : 'false',
 			'browser.download.manager.focusWhenStarting': 'false'
 		}
-		self.browser = Browser('firefox', profile_preferences=profile_preferences, headless=True)
+		self.browser = Browser('firefox', profile_preferences=profile_preferences, headless=False)
 		
 		# login - will go to O365 authentication
 		self.browser.visit('https://moodle.telt.unsw.edu.au/auth/oidc/')

@@ -30,3 +30,6 @@ A script to automate updating MS Teams based on Moodle input
 - Make log function available outside of teams\_updater class (for example for use in the Moodle class)
 - Change name to lms_updater and maybe split out into separate files, making it more like a library?
 - Login procedure for some of the classes is the same so standardise, or make a base class for them
+
+## BUGS
+- headless start of Firefox/geckodriver crashes
