@@ -764,6 +764,19 @@ class TeamsUpdater:
 
 		self.log(f'Exported class list to {output_path}\n\n')
 
+	def get_team (self, team_id):
+		""" Get basic team info """
+		self.ensure_connected()
+
+		response = self.process.run_command(
+			f'Get-Team -GroupId {team_id}',
+			convert_json = True
+		)
+
+		self.log(f'Got info on {team_id}')
+		
+		return response
+
 	def create_team (self, name, description='', visibility='Private', owners=[], template=None, info=''):
 		"""
 		Create a new Team. Connected account will become an owner automatically.
@@ -1001,6 +1014,33 @@ class TeamsUpdater:
 		self.log(f'Updating team {team_id} complete (- {count_removed} / + {count_added})')
 
 		return (count_removed, count_added)
+
+	def get_channels (self, team_id, channel_type=None):
+		""" Get all the channels for a team """
+		self.ensure_connected()
+
+		mtype = ''
+		if (channel_type != None):
+			mtype = f' -MembershipType {channel_type}'  # Standard|Private
+
+		# create channel
+		response = self.process.run_command(
+			f'Get-TeamChannel -GroupId {team_id}{mtype}',
+			convert_json = True
+		)
+
+		all_channels = {}
+
+		# single channel isn't given as a list, just the channel dict, so wrap in list
+		if (isinstance(response, dict)):
+			response = [response]
+
+		for ch in response:
+			all_channels[ ch['DisplayName'] ] = ch
+
+		self.log(f'Got {len(all_channels)} channels in Team {team_id}')
+
+		return all_channels
 
 	def create_channel (self, team_id, channel_name, channel_type='Standard', description=None):
 		""" Create a new channel in a team with the specific name and type """
