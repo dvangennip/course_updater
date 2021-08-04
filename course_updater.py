@@ -1695,7 +1695,7 @@ class MoodleUpdater:
 		# first check if section already exists
 		section_title_els = self.browser.find_by_css('a.quickeditlink')
 		for s_title in section_title_els:
-			if (s_title == section_info['name']):
+			if (s_title.text == section_info['name']):
 				print(f'INFO: Section named {section_info["name"]} already exists. Skipped.')
 				return
 
@@ -1778,6 +1778,52 @@ class MoodleUpdater:
 			time.sleep(5)
 
 		print(f'INFO: Added section named {section_info["name"]}.')
+
+	def remove_section (self, section_name):
+		""" Removes a section with the specified name """
+
+		print(f'INFO: Removing section named {section_name}.')
+
+		# go to course main page 
+		self.browser.visit(f'https://moodle.telt.unsw.edu.au/course/view.php?id={self.course_id}')
+
+		time.sleep(10)
+
+		# enable editing by clicking the right button
+		buttons = self.browser.find_by_css('button[type=submit]')
+		for b in buttons:
+			if (b.text == 'Turn editing on'):
+				b.click()
+
+				# let things settle
+				time.sleep(10)
+				
+				break  # no need anymore to check other buttons
+			elif (b.text == 'Turn editing off'):
+				break  # we're in the editing mode already
+
+		# find sections
+		sections = self.browser.find_by_css('li.section.main')
+		
+		for section in sections:
+			# first check if section exists
+			section_title_els = section.find_by_css('a.quickeditlink')
+			
+			if (section_title_els.first.text == section_name):
+				# first, toggle the edit popup to be visible, then click the hide button within
+				edit_toggle_buttons = section.find_by_css('a.dropdown-toggle')
+				edit_toggle_buttons.last.click()
+				time.sleep(0.5)
+
+				delete_section_button = section.find_by_text('Delete section')
+				delete_section_button.last.click()
+				time.sleep(5)
+
+				print(f'INFO: Removed section named {section_name}.')
+				return
+
+		# else
+		print(f'INFO: Skipped section named {section_name}: does not exist.')
 
 	def export_default_groups_list (self, project_list, tech_stream_list=None, replace_terms={}):
 		""" Generates a csv file for importing into Moodle with basic group and grouping setup """
