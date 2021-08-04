@@ -741,7 +741,7 @@ class TeamsUpdater:
 	def export_class_list (self, project_list):
 		""" Exports a list of classes with demonstrator information """
 
-		# assume course code is first thing in path, for example: engg1000-title-2021-t1.csv
+		# assume course code is first thing in path, for example: engg1000-title---2021-t1.csv
 		course = self.data_path[:self.data_path.find('-')]
 		
 		output_path = self.data_path.replace('.csv', '-classes.csv')
@@ -756,7 +756,7 @@ class TeamsUpdater:
 				s = project_list[stream]
 
 				for clas in s['classes']:
-					
+					# for each class, get all instructors
 					instructors = [] 
 					
 					for iid in clas['instructors']:
@@ -1779,7 +1779,7 @@ class MoodleUpdater:
 
 		print(f'INFO: Added section named {section_info["name"]}.')
 
-	def export_default_groups_list (self, project_list):
+	def export_default_groups_list (self, project_list, tech_stream_list=None, replace_terms={}):
 		""" Generates a csv file for importing into Moodle with basic group and grouping setup """
 		
 		output_path = self.csv_file.replace('.csv', '-groups.csv')
@@ -1788,24 +1788,41 @@ class MoodleUpdater:
 			# write header
 			fo.write('groupname,groupingname')
 
+			fo.write(f'\n"Staff (DO NOT REMOVE)","Staff Grouping (All)"')
+
 			for pname in project_list:
 				p = project_list[pname]
 
 				fo.write(f'\n"Staff {pname}","Staff Grouping (All)"')
 
-				# TODO make this more accurate and/or flexible
-				# ENGG1000 would use 'Project Group - {pname}' and usually not 'Project Grouping - {pname}'
-				# ^ it isn't dependent on class ids like DESN2000 is
-				# use something else instead of 'Students'?
+				students_term = 'Students'
+				if (replace_terms['Students']):
+					students_term = replace_terms['Students']
+
+				student_term = 'Student'
+				if (replace_terms['Student']):
+					students_term = replace_terms['Student']
+
 				if ('main_class_id' in p):
-					fo.write(f'\n"{p["main_class_id"]}","Students Grouping - {pname}"')
-					fo.write(f'\n"{p["main_class_id"]}","Students Grouping (All)"')
+					fo.write(f'\n"{p["main_class_id"]}","{students_term} Grouping - {pname}"')
+					fo.write(f'\n"{p["main_class_id"]}","{students_term} Grouping (All)"')
 				else:
-					fo.write(f'\n"DUMMY GROUP","Students Grouping - {pname}"')
-					fo.write(f'\n"DUMMY GROUP","Students Grouping (All)"')
+					fo.write(f'\n"DUMMY GROUP","{students_term} Grouping - {pname}"')
+					fo.write(f'\n"DUMMY GROUP","{students_term} Grouping (All)"')
 				
-				fo.write(f'\n"DUMMY GROUP","Student Teams - {pname}"')
-				fo.write(f'\n"DUMMY GROUP","Student Teams (All)"')
+				fo.write(f'\n"DUMMY GROUP","{student_term} Teams - {pname}"')
+				fo.write(f'\n"DUMMY GROUP","{student_term} Teams (All)"')
+
+			if (tech_stream_list is not None):
+				for tname in tech_stream_list:
+					t = tech_stream_list[tname]
+
+					fo.write(f'\n"Staff {tname}","Staff Grouping (All)"')
+
+					fo.write(f'\n"Technical Stream Group - {tname} (Online)","Technical Stream Grouping - {tname}"')
+					fo.write(f'\n"Technical Stream Group - {tname} (OnCampus)","Technical Stream Grouping - {tname}"')
+					fo.write(f'\n"Technical Stream Group - {tname} (Online)","Technical Stream Grouping - All"')
+					fo.write(f'\n"Technical Stream Group - {tname} (OnCampus)","Technical Stream Grouping - All"')
 
 			print(f'\nExported groups list to {output_path}\n\n')
 
