@@ -261,7 +261,10 @@ class PowerShellWrapper:
 		
 		if (convert_json):
 			if (len(output) > 0 and output.lower().find('error occurred while executing') == -1):
-				output = json.loads(output)
+				try:
+					output = json.loads(output)
+				except json.decoder.JSONDecodeError as e:
+					print(e)
 			# else just keep output unconverted
 
 		self.latest_output = output
