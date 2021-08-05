@@ -678,8 +678,12 @@ class TeamsUpdater:
 								pmentor_id = mu.id
 								pmentor_em = mu.email
 
+					# find project team
 					if (g.lower().find('team') != -1):
 						pteam = g.replace('Project ','')
+
+					if (g.lower().find('group') != -1):
+						pteam = g
 
 					if (tech_stream_list is not None):
 						if (g.find('Technical Stream Group - ') != -1):
