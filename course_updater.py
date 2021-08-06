@@ -1876,6 +1876,63 @@ class MoodleUpdater:
 
 			print(f'\nExported groups list to {output_path}\n\n')
 
+	def get_workshop_grades (self, assessment_id):
+		""" EXPERIMENTAL Download grades from a UNSW Workshop tool """
+		print(f'\nDownloading workshop grades for {assessment_id}')
+
+		self.browser.visit(f'https://moodle.telt.unsw.edu.au/mod/workshep/view.php?id={assessment_id}')
+		time.sleep(10)
+
+		# get table data
+		table      = self.browser.find_by_css('table.grading-report')
+		table_rows = table.find_by_tag('tbody').find_by_tag('tr')
+
+		submission_data = []
+
+		for row in table_rows:
+			try:
+				d = {
+					'name'      : row.find_by_css('td.participant').text,
+					'submission': row.find_by_css('td.submission').find_by_tag('a')['href'],
+					'grades'    : []
+				}
+
+				submission_data.append(d)
+				print(d['name'])
+			except:  #splinter.exceptions.ElementDoesNotExist as e
+				pass
+
+			# if a user receives multiple grades, those are put into subsequent rows
+			#   those additional rows miss the participant and submission data, and only carry grade data
+			#   so if the above try block fails, we got the second type and just add the parsed grade to the last item in data
+			receivedgrade = row.find_by_css('td.receivedgrade')  # example: '- (-)<Jimmy Liu'
+
+			if (len(receivedgrade) > 0 and receivedgrade.text != '-'):  # <- no markers assigned
+				grade  = receivedgrade.find_by_css('span.grade').text
+				marker = receivedgrade.find_by_css('span.fullname').text
+
+				grade_data = {
+					'grade' : grade,
+					'marker': marker
+				}
+				submission_data[-1]['grades'].append(grade_data)
+
+		# export to csv file
+		output_path = f'workshop-{assessment_id}.csv'
+		# output_path = self.csv_file.replace('.csv', f'-workshop-{assessment_id}.csv')
+
+		with open(output_path, 'w') as f:
+			# header
+			f.write('"Student name","Student zID",Submission,Grade,Marker,"Marker zID"')
+
+			for sub in submission_data:
+				# by focusing only on grades, any entry without grades is skipped
+				#   note: this means that students without a marker allocated may be skipped
+				for grade in sub['grades']:
+					f.write(f'\n"{sub["name"]}",-,{sub["submission"]},{grade["grade"]},"{grade["marker"]}",-')
+
+		print(f'\nExported workshop grades for {assessment_id} to {output_path}')
+
 
 class LMUpdater:
 	"""
