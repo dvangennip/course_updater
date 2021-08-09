@@ -780,7 +780,7 @@ class TeamsUpdater:
 			convert_json = True
 		)
 
-		self.log(f'Got info on {team_id}')
+		self.log(f'Got info on Team named {response["DisplayName"]} ({team_id})')
 		
 		return response
 
