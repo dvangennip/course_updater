@@ -1352,6 +1352,142 @@ class TeamsUpdater:
 		# ensure it is written rightaway to avoid loss of log data upon a crash
 		self.log_file.flush()
 
+	def convenience_get_stream_owners (self, stream_name, stream_data, existing_owners=[]):
+		"""
+		Get all owners based on user list and stream data
+		"""
+		owners = self.ensure_dict(existing_owners)
+
+		# find by groupname in user list
+		owners_in_user_list = self.find_users('group', f'Staff {stream_name}', self.user_whitelist, return_type='dict')
+
+		for ol in owners_in_user_list:
+			if (ol not in owners):
+				owners[ol] = owners_in_user_list[ol]
+
+		# use stream data to fill in gaps (particularly handy if people are missing from userlist)
+		for co in stream_data['coordinators']:
+			if (co not in owners):
+				if (co in self.user_whitelist):
+					owners[co] = self.user_whitelist[co]
+				elif (co in self.user_list):
+					owners[co] = self.user_list[co]
+				else:
+					# add a dummy user
+					c = User(co, '~~unknown~~', [], [], [], '', True)
+					owners[co] = c
+
+		for oo in stream_data['other_owners']:
+			if (oo not in owners):
+				if (oo in self.user_whitelist):
+					owners[oo] = self.user_whitelist[oo]
+				else:
+					# add a dummy user
+					o = User(oo, '~~unknown~~', [], [], [], '', True)
+					owners[oo] = o
+
+		for clas in stream_data['classes']:
+			for demonstrator_id in clas['instructors']:
+				if (demonstrator_id not in owners):
+					if (demonstrator_id in self.user_whitelist):
+						owners[demonstrator_id] =self.user_whitelist[demonstrator_id]
+					else:
+						# add a dummy user
+						d = User(demonstrator_id, '~~unknown~~', [], [], [], '', True)
+						owners[demonstrator_id] = d
+
+		return self.ensure_list(owners)
+
+	def convenience_create_class_channels (self, stream_data, current_channels):
+		""" Create class channels based on given stream data """
+		for clas in stream_data['classes']:
+			if (clas['channel']):
+				channel_name = f'{clas["name"]}_{clas["class_id"]}'
+
+				if (channel_name in current_channels):
+					# check if type is correct - if not, warn (mismatch can't be resolved without recreating channel)
+					current_type = current_channels[channel_name]['MembershipType'].lower().replace('standard','public')
+
+					if (current_type != clas['channel']):
+						self.log(f"Channel {channel_name} in {stream_data['team_id']}: Wrong membership type: not {clas['channel']}",'WARNING')
+					
+					# check if description is correct - if not, update
+					if (current_channels[channel_name]['Description'] != clas['description']):
+						self.set_channel(stream_data['team_id'], channel_name, description=clas['description'])
+				else:
+					# create channel
+					ctype = 'Standard'
+					if (clas['channel'] == 'private'):
+						ctype = 'Private'
+
+					self.create_channel(stream_data['team_id'], channel_name, ctype, description=clas['description'])
+
+	def convenience_sync_class_channels (self, stream_data, owners, include_students=True, remove_allowed=True):
+		""" Synchronise stream channel membership against a given user list """
+		for clas in stream_data['classes']:
+			# only need to sync private channels as those have a memberlist separate from main team
+			if (clas['channel'] and clas['channel'] == 'private'):
+				channel_name = f'{clas["name"]}_{clas["class_id"]}'
+
+				# update owners
+				self.update_channel(stream_data['team_id'], channel_name, owners, role='Owner', remove_allowed=remove_allowed)
+				
+				# update students
+				if (include_students):
+					class_students = self.find_users('class id', clas['class_id'], return_type='dict')
+
+					self.update_channel(stream_data['team_id'], channel_name, class_students, role='Member')
+
+	def convenience_course_stream_update (self, team_name, stream_name, stream_data, include_staff=True, include_students=True, remove_allowed=True):
+		""" Default stream update method, suitable for most courses """
+
+		# ---- find stream owners ----
+		dnext_owners  = self.find_users('group', f'Staff Design Next', self.user_whitelist)
+		stream_owners = []
+		# initially, we may exclude staff to give time for early setup
+		if (include_staff):
+			stream_owners = self.convenience_get_stream_owners(stream_name, stream_data, dnext_owners)
+		else:
+			stream_owners = dnext_owners
+
+		# ---- get basic team info ----
+		team_info        = self.get_team(stream_data['team_id'])
+		# get channels within the Team
+		current_channels = self.get_channels(stream_data['team_id'])
+
+		# ---- set appearance ----
+		# team_name    = f'{my_course_code} {stream} - {my_year} T{my_term}'
+		description  = f'Teaching Team for {team_name}'
+		team_picture = None  #f'../Logos/{my_course_code}-{stream.lower()}.png'
+
+		if (team_info['DisplayName'] != team_name or team_info['Description'] != description):
+			self.set_team(stream_data['team_id'], new_name=team_name, description=description)
+
+		# set Team picture (run only once)
+		#self.set_team_picture(stream_data['team_id'], f'../Logos/{my_course_code}-{stream.lower()}.png')
+
+		# ---- create channels ----
+		# add public channels
+		if ('Forum' not in current_channels):
+			self.create_channel(stream_data['team_id'], 'Forum', description='A place for student discussion, asking questions, etc.')
+
+		# add private channels
+		if ('z_Demonstrators' not in current_channels):
+			self.create_channel(stream_data['team_id'], 'z_Demonstrators', 'Private', description='Private channel for demonstrator discussions')
+
+		# class channels
+		self.convenience_create_class_channels(stream_data, current_channels)
+
+		# ---- sync members ----
+		# update team owners
+		self.update_team(stream_data['team_id'], stream_owners, role='Owner', remove_allowed=remove_allowed)
+
+		# sync demonstrator channel
+		self.update_channel(stream_data['team_id'], 'z_Demonstrators', stream_owners)
+
+		# sync private class channels
+		self.convenience_sync_class_channels(stream_data, stream_owners, include_students=include_students, remove_allowed=remove_allowed)
+
 
 class MoodleUpdater:
 	"""
