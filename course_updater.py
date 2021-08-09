@@ -1187,6 +1187,7 @@ class TeamsUpdater:
 			self.log(f'Channel {channel_name}: Added {user} as {role}')
 		else:
 			# if (response.find('User is not found in the team.') != -1 or response.find('Could not find member.') != -1 or response.find('Authorization_RequestDenied') !=-1):
+			# elif 'Failed to find the user on the channel roster.'
 			success = False
 			self.log(f'Channel {channel_name}: Could not add {user} as {role}', 'ERROR')
 
