@@ -899,6 +899,30 @@ class TeamsUpdater:
 
 		for d in response_data:
 			userid = d['User'].lower().replace('@ad.unsw.edu.au','')  # 'User ' = accountname@domain
+
+			# in recent PS Module versions for MicrosoftTeams returned user data may contain the 'nice' email
+			#   address, so instead of z1234567@ad.unsw.edu.au, we get f.somename@ad.unsw.edu.au
+			#   if so, we'd need to do a lookup (f.somename -> z1234567) as sending commands and
+			#   everything else still relies on zIDs being correct
+			if (not re.match('^z[\d]{7}$', userid)):
+				# try whitelist first
+				for uw in self.user_whitelist:
+					if (self.user_whitelist[uw]['email'].replace('@ad.unsw.edu.au','') == userid):
+						userid = uw
+						break
+				# then try the regular userlist
+				for ul in self.user_list:
+					if (self.user_list[ul]['email'].replace('@ad.unsw.edu.au','') == userid):
+						userid = ul
+						break
+
+			# check userid again, if we haven't resolved the lookup, this user is skipped
+			#   note that we won't be able to properly handle any user unknown to whichever source list
+			#   was imported, which may hamper us in some ways
+			if (not re.match('^z[\d]{7}$', userid)):
+				self.log(f'Could not parse user id for {userid}','ERROR')
+				continue
+
 			user_list[userid] = User(
 				userid,     # zID
 				d['Name'],  # name       
