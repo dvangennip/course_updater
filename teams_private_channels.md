@@ -9,7 +9,7 @@
 Install the MicrosoftTeams module. For now, only preview releases include the `Add-TeamChannelUser` cmdlet, so we’ll have to specify the right version to install.
 
 ```pwsh
-Install-Module -Name MicrosoftTeams -RequiredVersion 1.1.3-preview -AllowPrerelease
+Install-Module -Name MicrosoftTeams -AllowPrerelease
 ```
 
 Check whether the `Add-TeamChannelUser` cmdlet is available now
