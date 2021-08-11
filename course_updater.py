@@ -1181,9 +1181,11 @@ class TeamsUpdater:
 
 		# owners need to be added as regular members first, then once more to set the owner status
 		if (response.find('User is not found in the team.') == -1 and role == 'Owner'):
-			response = self.process.run_command(
-				f'Add-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}" -User {user.id}@ad.unsw.edu.au -Role {role}'
-			)
+			# TODO temporarily disabled due to a bug in PS module
+			self.log(f'Skipped adding {role} status for {user} due to PS module bug', 'WARNING')
+			# response = self.process.run_command(
+			# 	f'Add-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}" -User {user.id}@ad.unsw.edu.au -Role {role}'
+			# )
 
 		# parse response
 		success = True
