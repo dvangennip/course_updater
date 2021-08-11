@@ -435,6 +435,9 @@ class TeamsUpdater:
 		A call to this method should be added anywhere a process command is sent to the Teams backend.
 		By only connecting when required, we skip the time-consuming login whenever possible.
 		"""
+		if (self.connected == False and self.process is None):
+			self.log('Establishing connection with MicrosoftTeams powershell module')
+
 		# first, ensure we have a working process
 		if (self.process is None):
 			self.process = PowerShellWrapper()
@@ -1087,13 +1090,15 @@ class TeamsUpdater:
 			convert_json = True
 		)
 
-		# TODO parse response
-		# if (response.find(''))
-		#New-TeamChannel: Error occurred while executing 
-		#Code: BadRequest
-		#Message: Channel name already existed, please use other name.
+		# parse response
+		if (response.find('Error occurred while executing') == -1):
+			self.log(f'Created channel {channel_name} in Team {team_id}')
+		else:
+			reason = 'unknown reason'
+			if (response.find('Channel name already existed') != -1):
+				reason = 'Channel name already existed'
 
-		self.log(f'Created channel {channel_name} in Team {team_id}')
+			self.log(f'Could not create channel {channel_name} in Team {team_id} ({reason})', 'ERROR')
 
 	def set_channel (self, team_id, channel_name, new_channel_name=None, description=None):
 		""" adjust name and description of an existing channel """
@@ -1409,7 +1414,7 @@ class TeamsUpdater:
 					current_type = current_channels[channel_name]['MembershipType'].lower().replace('standard','public')
 
 					if (current_type != clas['channel']):
-						self.log(f"Channel {channel_name} in {stream_data['team_id']}: Wrong membership type: not {clas['channel']}",'WARNING')
+						self.log(f"Channel {channel_name} in {stream_data['team_id']}: Wrong membership type: not {clas['channel']}",'ERROR')
 					
 					# check if description is correct - if not, update
 					if (current_channels[channel_name]['Description'] != clas['description']):
@@ -1422,7 +1427,7 @@ class TeamsUpdater:
 
 					self.create_channel(stream_data['team_id'], channel_name, ctype, description=clas['description'])
 
-	def convenience_sync_class_channels (self, stream_data, owners, include_students=True, remove_allowed=True):
+	def convenience_sync_class_channels (self, stream_data, owners, sync_staff=True, sync_students=True, remove_allowed=True):
 		""" Synchronise stream channel membership against a given user list """
 		for clas in stream_data['classes']:
 			# only need to sync private channels as those have a memberlist separate from main team
@@ -1430,18 +1435,20 @@ class TeamsUpdater:
 				channel_name = f'{clas["name"]}_{clas["class_id"]}'
 
 				# update owners
-				self.update_channel(stream_data['team_id'], channel_name, owners, role='Owner', remove_allowed=remove_allowed)
+				if (sync_staff):
+					self.update_channel(stream_data['team_id'], channel_name, owners, role='Owner', remove_allowed=remove_allowed)
 				
 				# update students
-				if (include_students):
+				if (sync_students):
 					class_students = self.find_users('class id', clas['class_id'], return_type='dict')
 
 					self.update_channel(stream_data['team_id'], channel_name, class_students, role='Member')
 
-	def convenience_course_stream_update (self, team_name, stream_name, stream_data, include_staff=True, include_students=True, remove_allowed=True):
+	def convenience_course_stream_update (self, team_name, stream_name, stream_data, include_staff=True, sync_staff=True, sync_students=True, remove_allowed=True):
 		""" Default stream update method, suitable for most courses """
 
 		# ---- find stream owners ----
+		# TODO generalise/remove DN-specific operations
 		dnext_owners  = self.find_users('group', f'Staff Design Next', self.user_whitelist)
 		stream_owners = []
 		# initially, we may exclude staff to give time for early setup
@@ -1468,6 +1475,7 @@ class TeamsUpdater:
 
 		# ---- create channels ----
 		# add public channels
+		# TODO work from a supplied list rather than hard-coded channels
 		if ('Forum' not in current_channels):
 			self.create_channel(stream_data['team_id'], 'Forum', description='A place for student discussion, asking questions, etc.')
 
@@ -1479,14 +1487,15 @@ class TeamsUpdater:
 		self.convenience_create_class_channels(stream_data, current_channels)
 
 		# ---- sync members ----
-		# update team owners
-		self.update_team(stream_data['team_id'], stream_owners, role='Owner', remove_allowed=remove_allowed)
+		if (sync_staff):
+			# update team owners
+			self.update_team(stream_data['team_id'], stream_owners, role='Owner', remove_allowed=remove_allowed)
 
-		# sync demonstrator channel
-		self.update_channel(stream_data['team_id'], 'z_Demonstrators', stream_owners)
+			# sync demonstrator channel
+			self.update_channel(stream_data['team_id'], 'z_Demonstrators', stream_owners)
 
 		# sync private class channels
-		self.convenience_sync_class_channels(stream_data, stream_owners, include_students=include_students, remove_allowed=remove_allowed)
+		self.convenience_sync_class_channels(stream_data, stream_owners, sync_staff=sync_staff, sync_students=sync_students, remove_allowed=remove_allowed)
 
 
 class MoodleUpdater:
