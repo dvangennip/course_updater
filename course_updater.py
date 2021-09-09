@@ -1678,15 +1678,18 @@ class MoodleUpdater:
 			self.logger = logger
 
 		if (browser == None):
-			self.browser = MoodleBrowser(username, password, logger)
+			self.browser          = MoodleBrowser(username, password, logger)
+			self.browser_internal = True
 		else:
 			self.browser = browser
+			self.browser_internal = False
 
 		# convenience variable for short/more readable code
 		self.b = self.browser.browser
 
 	def close (self):
-		self.browser.close()
+		if (self.browser_internal):
+			self.browser.close()
 
 	def __enter__ (self):
 		""" enables the use of the `with` statement """
