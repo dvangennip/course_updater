@@ -1478,7 +1478,7 @@ class TeamsUpdater:
 
 					self.create_channel(stream_data['team_id'], channel_name, ctype, description=clas['description'])
 
-	def convenience_sync_class_channels (self, stream_data, owners, sync_staff=True, sync_students=True, remove_allowed=True):
+	def convenience_sync_class_channels (self, stream_data, owners, sync_staff=True, sync_students=True, remove_staff_allowed=True, remove_students_allowed=True):
 		""" Synchronise stream channel membership against a given user list """
 		for clas in stream_data['classes']:
 			# only need to sync private channels as those have a memberlist separate from main team
@@ -1487,15 +1487,15 @@ class TeamsUpdater:
 
 				# update owners
 				if (sync_staff):
-					self.update_channel(stream_data['team_id'], channel_name, owners, role='Owner', remove_allowed=remove_allowed)
+					self.update_channel(stream_data['team_id'], channel_name, owners, role='Owner', remove_allowed=remove_staff_allowed)
 				
 				# update students
 				if (sync_students):
 					class_students = self.find_users('class id', clas['class_id'], return_type='dict')
 
-					self.update_channel(stream_data['team_id'], channel_name, class_students, role='Member')
+					self.update_channel(stream_data['team_id'], channel_name, class_students, role='Member', remove_allowed=remove_students_allowed)
 
-	def convenience_course_stream_update (self, team_name, stream_name, stream_data, include_staff=True, sync_staff=True, sync_students=True, remove_allowed=True):
+	def convenience_course_stream_update (self, team_name, stream_name, stream_data, include_staff=True, sync_staff=True, sync_students=True, remove_staff_allowed=True, remove_students_allowed=True, set_team_picture=False):
 		""" Default stream update method, suitable for most courses """
 
 		# ---- find stream owners ----
@@ -1509,9 +1509,7 @@ class TeamsUpdater:
 			stream_owners = dnext_owners
 
 		# ---- get basic team info ----
-		team_info        = self.get_team(stream_data['team_id'])
-		# get channels within the Team
-		current_channels = self.get_channels(stream_data['team_id'])
+		team_info        = self.get_team(stream_data['team_id'], get_channels=True)
 
 		# ---- set appearance ----
 		# team_name    = f'{my_course_code} {stream} - {my_year} T{my_term}'
@@ -1521,32 +1519,35 @@ class TeamsUpdater:
 		if (team_info['DisplayName'] != team_name or team_info['Description'] != description):
 			self.set_team(stream_data['team_id'], new_name=team_name, description=description)
 
-		# set Team picture (run only once)
-		#self.set_team_picture(stream_data['team_id'], f'../Logos/{my_course_code}-{stream.lower()}.png')
+		# set Team picture
+		if (set_team_picture):
+			self.set_team_picture(stream_data['team_id'], f'../Logos/{my_course_code}-{stream.lower()}.png')
 
 		# ---- create channels ----
 		# add public channels
 		# TODO work from a supplied list rather than hard-coded channels
-		if ('Forum' not in current_channels):
+		if ('Forum' not in team_info['channels']):
 			self.create_channel(stream_data['team_id'], 'Forum', description='A place for student discussion, asking questions, etc.')
 
 		# add private channels
-		if ('z_Demonstrators' not in current_channels):
+		if ('z_Demonstrators' not in team_info['channels']):
 			self.create_channel(stream_data['team_id'], 'z_Demonstrators', 'Private', description='Private channel for demonstrator discussions')
 
 		# class channels
-		self.convenience_create_class_channels(stream_data, current_channels)
+		self.convenience_create_class_channels(stream_data, team_info['channels'])
 
 		# ---- sync members ----
 		if (sync_staff):
 			# update team owners
-			self.update_team(stream_data['team_id'], stream_owners, role='Owner', remove_allowed=remove_allowed)
+			self.update_team(stream_data['team_id'], stream_owners, role='Owner', remove_allowed=remove_staff_allowed)
 
 			# sync demonstrator channel
-			self.update_channel(stream_data['team_id'], 'z_Demonstrators', stream_owners)
+			self.update_channel(stream_data['team_id'], 'z_Demonstrators', stream_owners, remove_allowed=remove_staff_allowed)
 
 		# sync private class channels
-		self.convenience_sync_class_channels(stream_data, stream_owners, sync_staff=sync_staff, sync_students=sync_students, remove_allowed=remove_allowed)
+		self.convenience_sync_class_channels(stream_data, stream_owners, sync_staff=sync_staff, sync_students=sync_students, remove_staff_allowed=remove_staff_allowed, remove_students_allowed=remove_students_allowed)
+
+		return team_info
 
 
 class MoodleUpdater:
