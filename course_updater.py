@@ -197,29 +197,18 @@ class PowerShellWrapper:
 	
 	very simple, very likely not to work with most edge cases.
 	"""
-	def __init__ (self, debug=True):
+	def __init__ (self, lazy_start=False, debug=True):
 		self.latest_output      = ''
 		self.connected_to_teams = False
 		self.count              = 0
+		self.process            = None
 		self.debug_mode         = debug
-
-		self.process = subprocess.Popen(
-			['pwsh'],
-			stdin    = subprocess.PIPE,
-			stdout   = subprocess.PIPE,
-			stderr   = subprocess.STDOUT,
-			encoding = 'utf-8'
-		)
-		fcntl.fcntl(self.process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
 
 		if (self.debug_mode):
 			self.log = open('cmd_logs/alog.txt', 'w')
 
-		# run a few commands as a self test
-		time.sleep(5)
-		self.run_command('nothing - just letting it settle', False)
-		time.sleep(5)
-		self.run_command('Write-Output "check"')
+		if (lazy_start is False):
+			self.ensure_started()
 
 	# so we can use the with statement
 	def __enter__ (self):
@@ -234,13 +223,31 @@ class PowerShellWrapper:
 		else:
 			return False  # re-raises the exception on return to be transparent
 
+	def ensure_started (self):
+		if (self.process is None):
+			self.process = subprocess.Popen(
+				['pwsh'],
+				stdin    = subprocess.PIPE,
+				stdout   = subprocess.PIPE,
+				stderr   = subprocess.STDOUT,
+				encoding = 'utf-8'
+			)
+			fcntl.fcntl(self.process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
+
+			# run a few commands as a self test
+			time.sleep(5)
+			self.run_command('nothing - just letting it settle', False)
+			time.sleep(5)
+			self.run_command('Write-Output "check"')
+
 	def close (self):
 		# disconnect and confirm any prompts that may come our way
 		if (self.connected_to_teams):
 			self.run_command('Disconnect-MicrosoftTeams')
 
-		self.process.stdin.close()
-		self.process.kill()
+		if (self.process != None):
+			self.process.stdin.close()
+			self.process.kill()
 
 		if (self.debug_mode):
 			self.log.close()
@@ -255,6 +262,7 @@ class PowerShellWrapper:
 
 		Set `convert_json` to True when expecting output that needs parsing.
 		"""
+		self.ensure_started()
 
 		self.count += 1
 
@@ -345,6 +353,8 @@ class PowerShellWrapper:
 
 		TODO: automated seems broken in some cases at the moment... still opens browser tab that works.
 		"""
+		self.ensure_started()
+
 		if (self.connected_to_teams):
 			return True
 		else:
@@ -491,13 +501,18 @@ class TeamsUpdater:
 		Ensures we're connected to Teams backend whenever this method is called
 		A call to this method should be added anywhere a process command is sent to the Teams backend.
 		By only connecting when required, we skip the time-consuming login whenever possible.
+
+		TODO remove this as lazy_start functionality is integrated into wrapper itself
 		"""
 		if (self.connected == False and self.process is None):
 			self.logger.log('Establishing connection with MicrosoftTeams powershell module')
 
 		# first, ensure we have a working process
 		if (self.process is None):
-			self.process = PowerShellWrapper()
+			self.process          = PowerShellWrapper()
+			self.process_internal = True
+		else:
+			self.process_internal = False
 
 		# then, ensure the process is connected to Teams in the cloud
 		if (self.connected == False):
@@ -507,7 +522,7 @@ class TeamsUpdater:
 	
 	def close (self):
 		""" cleanup any open connections, files open """
-		if (self.process is not None):
+		if (self.process is not None and self.process_internal):
 			self.process.close()
 
 	def import_user_list (self):
