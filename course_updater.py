@@ -173,7 +173,6 @@ this list is also expanded with any staff found in a Moodle user file
 """
 my_user_whitelist = []
 
-
 # -----------------------------------------------------------------------------
 
 
@@ -408,15 +407,6 @@ class PowerShellWrapper:
 					# note: this procedure doesn't work because basic authentication uni tenant doesn't support the right sign-on protocols
 					#       would be cool though...
 
-					# get login details
-					username = username
-					if (username is None):
-						username = input(r'Domain\Username: ')
-
-					password = password
-					if (password is None):
-						password = getpass.getpass(prompt='Password: ')
-
 					# first, setup a credential object based on login details
 					self.run_command(f'$User = "{username}"')
 					self.run_command(f'$PWord = ConvertTo-SecureString -String "{password}" -AsPlainText -Force')
@@ -427,6 +417,8 @@ class PowerShellWrapper:
 			
 			# check for succesful connection
 			if (response.find('Token Acquisition finished successfully. An access token was returned')):
+				self.connected_to_teams = True
+			elif (response.find('TenantId')):  # just some string that will show only if succesful
 				self.connected_to_teams = True
 
 			return self.connected_to_teams
@@ -499,7 +491,7 @@ class TeamsUpdater:
 
 		# then, ensure the process is connected to Teams in the cloud
 		if (self.connected == False):
-			self.connected = self.process.connect_to_teams('default', self.username, self.password)
+			self.connected = self.process.connect_to_teams('credentials', self.username, self.password)
 
 		return self.connected
 	
