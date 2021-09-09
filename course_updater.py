@@ -23,6 +23,7 @@ from splinter import Browser
 import keyring
 import json
 import sys
+import colorama
 
 
 # -----------------------------------------------------------------------------
@@ -95,6 +96,59 @@ class LoginData:
 
 		# store
 		keyring.set_password(self.app_id, self.username, self.password)
+
+
+class Logger:
+	def __init__ (self):
+		# helper library for adding colours to output
+		colorama.init()
+
+		# open log file
+		self.log_file = open('teams_updater.log', 'a')
+		self.log_file.write('\n\n\n~~~ NEW LOG ~~~ ~~~ ~~~ ~~~')
+
+	def log (self, action='', level='INFO'):
+		message = f'{level} - {action}'
+
+		# add colour coding to terminal output
+		if (level == 'debug'):
+			print(f'{colorama.Fore.BLUE}{message}{colorama.Style.RESET_ALL}')
+		if (level == 'warning'):
+			print(f'{colorama.Fore.MAGENTA}{message}{colorama.Style.RESET_ALL}')
+		elif (level == 'error'):
+			print(f'{colorama.Style.BRIGHT}{colorama.Back.RED}{colorama.Fore.WHITE}{message}{colorama.Style.RESET_ALL}')
+
+		self.log_file.write(f'\n{datetime.now()} {message}')
+		# ensure it is written rightaway to avoid loss of log data upon a crash
+		self.log_file.flush()
+
+	def info (self, action=''):
+		self.log(action)
+
+	def debug (self, action=''):
+		self.log(action, 'DEBUG')
+
+	def warning (self, action=''):
+		self.log(action, 'WARNING')
+
+	def error (self, action=''):
+		self.log(action, 'ERROR')
+
+	def close (self):
+		self.log_file.close()
+
+	def __enter__ (self):
+		""" enables the use of the `with` statement """
+		return self
+
+	def __exit__ (self, type, value, traceback):
+		""" so we can exit after using the `with` statement """
+		self.close()
+
+		if (traceback is None):  # no exception occured
+			pass
+		else:
+			return False  # re-raise the exception to be transparent
 
 
 class Notifier:
@@ -382,15 +436,16 @@ class TeamsUpdater:
 	"""
 	Wrapper around powershell teams commands, with additional logic to keep teams and channels in sync with an external list.
 	"""
-	def __init__ (self, path=None, whitelist={}, process=None, username=None, password=None):
-		# open log file
-		self.log_file = open('teams_updater.log', 'a')
-		self.log_file.write('\n\n\n~~~ NEW LOG ~~~ ~~~ ~~~ ~~~')
+	def __init__ (self, path=None, whitelist={}, process=None, username=None, password=None, logger=None):
+		if (logger == None):
+			self.logger = Logger()
+		else:
+			self.logger = logger
 
 		# init variables
 		self.data_path       = path
 		if (self.data_path is None):
-			self.log('Please provide a filepath to a CSV file that TeamsUpdater can read.', 'WARNING')
+			self.logger.warning('Please provide a filepath to a CSV file that TeamsUpdater can read.')
 			# raise FileNotFoundError
 
 		# create whitelist from input list
@@ -436,7 +491,7 @@ class TeamsUpdater:
 		By only connecting when required, we skip the time-consuming login whenever possible.
 		"""
 		if (self.connected == False and self.process is None):
-			self.log('Establishing connection with MicrosoftTeams powershell module')
+			self.logger.log('Establishing connection with MicrosoftTeams powershell module')
 
 		# first, ensure we have a working process
 		if (self.process is None):
@@ -452,13 +507,12 @@ class TeamsUpdater:
 		""" cleanup any open connections, files open """
 		if (self.process is not None):
 			self.process.close()
-		self.log_file.close()
 
 	def import_user_list (self):
 		"""
 		Imports a user list csv file that was exported from Moodle
 		"""
-		self.log(f'Importing data from: {self.data_path}')
+		self.logger.log(f'Importing data from: {self.data_path}')
 
 		count_total       = 0
 		count_instructors = 0
@@ -472,7 +526,7 @@ class TeamsUpdater:
 			with open(self.data_path.replace('.csv', '_groupings.json'), 'r') as fg:
 				groups_dict = json.loads( fg.read() )
 		except FileNotFoundError as e:
-			self.log(e, 'ERROR')
+			self.logger.log(e, 'ERROR')
 		
 		# open and read CSV file - assumes existence of columns named Username (for zID), First Name, Surname, and a few more
 		with open(self.data_path) as fs:
@@ -531,7 +585,7 @@ class TeamsUpdater:
 
 						count_instructors += 1
 					else:
-						self.log(f'User {new_user} has no Class IDs but is not a staff member: skipped.', 'WARNING')
+						self.logger.log(f'User {new_user} has no Class IDs but is not a staff member: skipped.', 'WARNING')
 						count_unknown += 1
 				else:
 					# add new to master list
@@ -540,7 +594,7 @@ class TeamsUpdater:
 					count_students += 1
 
 		count_total = count_students + count_instructors + count_unknown
-		self.log(f'Imported data on {count_total} users (students: {count_students}, instructors: {count_instructors}, unknown: {count_unknown}).\n\n')
+		self.logger.log(f'Imported data on {count_total} users (students: {count_students}, instructors: {count_instructors}, unknown: {count_unknown}).\n\n')
 
 	def export_student_list (self, project_list, tech_stream_list=None, replace_terms=None):
 		""" Exports a list of students with project (and optional tech stream) information """
@@ -743,7 +797,7 @@ class TeamsUpdater:
 				# --- finally, write output for this student
 				f.write(f'\n{s.id},{s.name},{s.email},"{",".join(map(str,s.class_ids))}",{course},"{ccoordinator}","{ccoordinator_id}","{ccoordinator_em}",{project},"{pcoordinator}","{", ".join(pcoordinator_id)}","{pcoordinator_em}","{pclass}","{pmentor}","{pmentor_id}","{pmentor_em}","{pteam}","{tech_stream}","{tcoordinator}","{", ".join(tcoordinator_id)}","{tcoordinator_em}","{tmentor}","{tmentor_id}","{tmentor_em}"')
 
-			self.log(f'Exported student list to {output_path}\n\n')
+			self.logger.log(f'Exported student list to {output_path}\n\n')
 
 	def export_class_list (self, project_list):
 		""" Exports a list of classes with demonstrator information """
@@ -772,7 +826,7 @@ class TeamsUpdater:
 
 					f.write(f'\n{stream},"{clas["name"]}",{clas["class_id"]},"{clas["description"]}","{", ".join(instructors)}","{", ".join(clas["instructors"])}"')
 
-		self.log(f'Exported class list to {output_path}\n\n')
+		self.logger.log(f'Exported class list to {output_path}\n\n')
 
 	def get_team (self, team_id):
 		""" Get basic team info """
@@ -783,7 +837,10 @@ class TeamsUpdater:
 			convert_json = True
 		)
 
-		self.log(f'Got info on Team named {response["DisplayName"]} ({team_id})')
+		if (get_channels):
+			response['channels'] = self.get_channels(team_id)
+
+		self.logger.log(f'Got info on Team named {response["DisplayName"]} ({team_id})')
 		
 		return response
 
@@ -812,9 +869,9 @@ class TeamsUpdater:
 		
 		# check for correct group_id format: 458b02e9-dea0-4f74-8e09-93e95f93b473
 		if (not re.match('^[\dabcdef-]{36}$', response_group_id)):
-			self.log(f'Failed to create {visibility.lower()} team {name} (response: {response_group_id}) ({info=})', 'ERROR')
+			self.logger.log(f'Failed to create {visibility.lower()} team {name} (response: {response_group_id}) ({info=})', 'ERROR')
 		else:
-			self.log(f'Created {visibility.lower()} team {name} ({response_group_id}) ({info=})')
+			self.logger.log(f'Created {visibility.lower()} team {name} ({response_group_id}) ({info=})')
 
 			self.add_users_to_team(response_group_id, owners, 'Owner')
 
@@ -842,14 +899,14 @@ class TeamsUpdater:
 		# TODO parse response
 		#Set-Team: Team not found
 
-		self.log(f'Edited Team {team_id}')
+		self.logger.log(f'Edited Team {team_id}')
 
 	def set_team_picture (self, team_id, image_path):
 		""" update the team picture """
 		self.ensure_connected()
 
 		if (os.path.exists(image_path) is False):
-			self.log(f'Image to set Team picture for {team_id} does not exist', 'ERROR')
+			self.logger.log(f'Image to set Team picture for {team_id} does not exist', 'ERROR')
 			return False
 
 		# edit team
@@ -859,7 +916,7 @@ class TeamsUpdater:
 
 		# TODO parse response
 
-		self.log(f'Updated Team picture for {team_id}')
+		self.logger.log(f'Updated Team picture for {team_id}')
 
 	def get_team_user_list (self, team_id, role='All'):
 		"""
@@ -923,7 +980,7 @@ class TeamsUpdater:
 			#   note that we won't be able to properly handle any user unknown to whichever source list
 			#   was imported, which may hamper us in some ways
 			if (not re.match('^z[\d]{7}$', userid)):
-				self.log(f'Could not parse user id for {userid}', 'WARNING')
+				self.logger.warning(f'Could not parse user id for {userid}')
 				continue
 
 			user_list[userid] = User(
@@ -966,10 +1023,10 @@ class TeamsUpdater:
 		#Remove-TeamUser: Error occurred while executing 
 		#Remove-TeamUser: Last owner cannot be removed from the team
 		if (len(response) == 0):
-			self.log(f'Team {team_id}: Removed {user} as {role}')
+			self.logger.info(f'Team {team_id}: Removed {user} as {role}')
 		else:
 			success = False
-			self.log(f'Team {team_id}: Could not remove {user} as {role}')
+			self.logger.error(f'Team {team_id}: Could not remove {user} as {role}')
 
 		return success
 
@@ -994,10 +1051,10 @@ class TeamsUpdater:
 		success = True
 		#Request_ResourceNotFound
 		if (len(response) == 0):
-			self.log(f'Team {team_id}: Added {user} as {role}')
+			self.logger.info(f'Team {team_id}: Added {user} as {role}')
 		else:
 			success = False
-			self.log(f'Team {team_id}: Could not add {user} as {role}', 'ERROR')
+			self.logger.error(f'Team {team_id}: Could not add {user} as {role}')
 
 		return success
 
@@ -1030,7 +1087,7 @@ class TeamsUpdater:
 					if (response):
 						count_removed += 1
 				else:
-					self.log(f'Team {team_id}: Skipped removing {team_user_list[user_in_teams_list]} as {role}')
+					self.logger.info(f'Team {team_id}: Skipped removing {team_user_list[user_in_teams_list]} as {role}')
 				
 		# add any not in teams list but on desired list
 		for user_in_desired_list in desired_user_list:
@@ -1045,7 +1102,7 @@ class TeamsUpdater:
 				if (response):
 					count_added += 1
 
-		self.log(f'Updating team {team_id} complete (- {count_removed} / + {count_added})')
+		self.logger.info(f'Updating team {team_id} complete (- {count_removed} / + {count_added})')
 
 		return (count_removed, count_added)
 
@@ -1072,7 +1129,7 @@ class TeamsUpdater:
 		for ch in response:
 			all_channels[ ch['DisplayName'] ] = ch
 
-		self.log(f'Got {len(all_channels)} channels in Team {team_id}')
+		self.logger.info(f'Got {len(all_channels)} channels in Team {team_id}')
 
 		return all_channels
 
@@ -1092,13 +1149,13 @@ class TeamsUpdater:
 
 		# parse response
 		if (response.find('Error occurred while executing') == -1):
-			self.log(f'Created channel {channel_name} in Team {team_id}')
+			self.logger.info(f'Created channel {channel_name} in Team {team_id}')
 		else:
 			reason = 'unknown reason'
 			if (response.find('Channel name already existed') != -1):
 				reason = 'Channel name already existed'
 
-			self.log(f'Could not create channel {channel_name} in Team {team_id} ({reason})', 'ERROR')
+			self.logger.error(f'Could not create channel {channel_name} in Team {team_id} ({reason})')
 
 	def set_channel (self, team_id, channel_name, new_channel_name=None, description=None):
 		""" adjust name and description of an existing channel """
@@ -1124,7 +1181,7 @@ class TeamsUpdater:
 		# TODO parse response
 		#Set-TeamChannel: Channel not found
 
-		self.log(f'Edited channel {channel_name} in Team {team_id}')
+		self.logger.info(f'Edited channel {channel_name} in Team {team_id}')
 
 	def get_channels_user_list (self, channels_list, role='All'):
 		""" TODO untested and unused at the moment """
@@ -1155,7 +1212,7 @@ class TeamsUpdater:
 			# 	pass
 			# elif: (response.find('Forbidden') != -1):
 			# 	pass
-			self.log(f'Channel {channel_name}: Could not get user list', 'ERROR')
+			self.logger.error(f'Channel {channel_name}: Could not get user list')
 			return False
 		else:
 			member_list = self._parse_response_users(response, channel_name, print_users=True)
@@ -1217,11 +1274,11 @@ class TeamsUpdater:
 
 		# by default, no response means things went fine
 		if (len(response) == 0):
-			self.log(f'Channel {channel_name}: Removed {user} as {role}')
+			self.logger.info(f'Channel {channel_name}: Removed {user} as {role}')
 		else:
 			success = False
 			print(response)
-			self.log(f'Channel {channel_name}: Could not remove {user} as {role}', 'ERROR')
+			self.logger.error(f'Channel {channel_name}: Could not remove {user} as {role}')
 		
 		# TODO parse response
 		# Remove-TeamChannelUser: Error occurred while executing 
@@ -1235,7 +1292,7 @@ class TeamsUpdater:
 		return success
 
 	def update_channel (self, team_id, channel_name, desired_user_list, channel_user_list=None, role='All', remove_allowed=True):
-		self.log(f"Updating channel {channel_name} ({len(desired_user_list)} enrolments)")
+		self.logger.info(f"Updating channel {channel_name} ({len(desired_user_list)} enrolments)")
 
 		count_removed = 0
 		count_added   = 0
@@ -1262,7 +1319,7 @@ class TeamsUpdater:
 					if (response):
 						count_removed += 1
 				else:
-					self.log(f'Channel {channel_name}: Skipping removing {channel_user_list[user_in_teams_list]} as {role}')
+					self.logger.info(f'Channel {channel_name}: Skipping removing {channel_user_list[user_in_teams_list]} as {role}')
 				
 		# add any not in teams list but on desired list
 		for user_in_desired_list in desired_user_list:
@@ -1278,7 +1335,7 @@ class TeamsUpdater:
 				if (response):
 					count_added += 1
 
-		self.log(f'Updating channel {channel_name} complete (- {count_removed} / + {count_added})')
+		self.logger.info(f'Updating channel {channel_name} complete (- {count_removed} / + {count_added})')
 
 		return (count_removed, count_added)
 
@@ -1353,12 +1410,6 @@ class TeamsUpdater:
 		else:
 			return input_dict
 
-	def log (self, action='', type='INFO'):
-		print(f'{type} - {action}')
-		self.log_file.write(f'\n{datetime.now()} {type} - {action}')
-		# ensure it is written rightaway to avoid loss of log data upon a crash
-		self.log_file.flush()
-
 	def convenience_get_stream_owners (self, stream_name, stream_data, existing_owners=[]):
 		"""
 		Get all owners based on user list and stream data
@@ -1416,7 +1467,7 @@ class TeamsUpdater:
 					current_type = current_channels[channel_name]['MembershipType'].lower().replace('standard','public')
 
 					if (current_type != clas['channel']):
-						self.log(f"Channel {channel_name} in {stream_data['team_id']}: Wrong membership type: not {clas['channel']}",'ERROR')
+						self.logger.error(f"Channel {channel_name} in {stream_data['team_id']}: Wrong membership type: not {clas['channel']}")
 					
 					# check if description is correct - if not, update
 					if (current_channels[channel_name]['Description'] != clas['description']):
@@ -1506,10 +1557,15 @@ class MoodleUpdater:
 
 	Course id is unique, look at the url on Moodle to find the id for the course
 	"""
-	def __init__ (self, course_id, username, password):
+	def __init__ (self, course_id, username, password, logger=None):
 		self.course_id = course_id
 		self.csv_file  = None
 		self.logged_in = False
+
+		if (logger == None):
+			self.logger = Logger()
+		else:
+			self.logger = logger
 
 		self.login(username, password)
 
@@ -1518,7 +1574,7 @@ class MoodleUpdater:
 		Logs in to single-sign on for Moodle (thus with Office 365 credentials)
 		usually doesn't fail, so that's quite nice
 		"""
-		print('INFO: Logging in to Moodle...')
+		self.logger.info('Logging in to Moodle...')
 		
 		# use a custom profile to avoid download popup
 		profile_preferences = {
@@ -1549,12 +1605,12 @@ class MoodleUpdater:
 
 		# check if we are now logged in
 		if (self.browser.url.find('moodle.telt.unsw.edu.au') != -1):
-			print('INFO: Logged in to Moodle successfully.')
+			self.logger.info('Logged in to Moodle successfully.')
 			self.logged_in = True
 			return True
 		
 		# else
-		print('WARNING: Moodle login may have failed')
+		self.logger.warning('Moodle login may have failed')
 		# TODO handle this situation properly, we shouldn't continue
 		return False
 
@@ -1582,7 +1638,7 @@ class MoodleUpdater:
 		Note that Moodle sets the filename and this script's browser instance can't control that.
 		It also doesn't indicate when a download may have completed, so this requires manual confirmation.
 		"""
-		print('INFO: Getting user data CSV file from Moodle...')
+		self.logger.info('Getting user data CSV file from Moodle...')
 	
 		# get all users on one page
 		self.browser.visit(f'https://moodle.telt.unsw.edu.au/user/index.php?id={self.course_id}&perpage=5000&selectall=1')
@@ -1607,7 +1663,7 @@ class MoodleUpdater:
 			os.rename(filename, old_filename)
 		
 		# select the export CSV option (which triggers a download)
-		print('INFO: Downloading user list as CSV...')
+		self.logger.info('Downloading user list as CSV...')
 		el = self.browser.find_by_id('formactionid')
 		el.select('exportcsv.php')
 
@@ -1618,7 +1674,7 @@ class MoodleUpdater:
 		got_file = input('Downloaded file? [Y]es or [N]o: ').lower()
 
 		if ('y' in got_file):
-			print(f'INFO: Moodle user data downloaded to {filename}')
+			self.logger.info(f'Moodle user data downloaded to {filename}')
 
 			# remove old file if it's there
 			if (os.path.exists(old_filename)):
@@ -1628,7 +1684,7 @@ class MoodleUpdater:
 			return filename
 		else:
 			# if unsuccessful we end up here...
-			print(f'ERROR: Unable to download Moodle user data')
+			self.logger.error(f'Unable to download Moodle user data')
 
 			# rename the old file to its former name
 			if (os.path.exists(old_filename)):
@@ -1637,8 +1693,8 @@ class MoodleUpdater:
 				return filename
 
 	def get_grouping_data (self, output_path):
-		""" TODO extracts grouping info and exports to csv """
-		print('INFO: Getting grouping data from Moodle...')
+		""" extracts grouping info and exports to csv """
+		self.logger.info('Getting grouping data from Moodle...')
 		
 		# go to grouping overview page
 		self.browser.visit(f'https://moodle.telt.unsw.edu.au/group/groupings.php?id={self.course_id}')
@@ -1693,13 +1749,13 @@ class MoodleUpdater:
 		with open(output_path.replace('.csv', '_groupings.json'), 'w') as f:
 			f.write( json.dumps(groups_dict, sort_keys=True, indent=4) )
 
-		print('INFO: Grouping data export complete.')
+		self.logger.info('Grouping data export complete.')
 
 		return groups_dict
 
 	def get_grades_csv (self):
 		""" TODO not sure if I ever used/tested this """
-		print('INFO: Getting grades data CSV file from Moodle...')
+		self.logger.info('Getting grades data CSV file from Moodle...')
 		
 		# go to grades download page (and just get all grades)
 		self.browser.visit(f'https://moodle.telt.unsw.edu.au/grade/export/txt/index.php?id={self.course_id}')
@@ -1728,7 +1784,7 @@ class MoodleUpdater:
 
 	def auto_create_groups (self, group_by_type='classid', grouping_name=None):
 		""" Automates the groups auto-creation interface on Moodle """
-		print(f'INFO: Auto-creating groups by {group_by_type}...')
+		self.logger.info(f'Auto-creating groups by {group_by_type}...')
 		
 		# go straight to the auto-create groups page for the course
 		self.browser.visit(f'https://moodle.telt.unsw.edu.au/group/autogroup.php?courseid={self.course_id}')
@@ -1754,7 +1810,7 @@ class MoodleUpdater:
 		# give additional time to settle
 		time.sleep(5)
 
-		print('INFO: Auto-creating groups complete.')
+		self.logger.info('Auto-creating groups complete.')
 
 	def add_gradebook_category (self, category_info={}):
 		"""
@@ -1768,7 +1824,7 @@ class MoodleUpdater:
 		  parent_category : (optional) String of text, must match existing category name
 		  weight          : (optional) Float in range [0,1]
 		"""
-		print(f'INFO: Adding the {category_info["name"]} gradebook category...')
+		self.logger.info(f'Adding the {category_info["name"]} gradebook category...')
 
 		# go straight to add/edit gradebook category page
 		self.browser.visit(f'https://moodle.telt.unsw.edu.au/grade/edit/tree/category.php?courseid={self.course_id}')
@@ -1849,7 +1905,7 @@ class MoodleUpdater:
 
 				time.sleep(5)
 
-		print(f'INFO: Added the {category_info["name"]} gradebook category.')
+		self.logger.info(f'Added the {category_info["name"]} gradebook category.')
 
 	def add_section (self, section_info={}):
 		"""
@@ -1861,7 +1917,7 @@ class MoodleUpdater:
 		  restrictions : (optional) list of dicts, e.g. [{'group': 'some group'}, {'grouping': 'some grouping'}]
 		  hidden       : (optional) True or False
 		"""
-		print(f'INFO: Adding section named {section_info["name"]}...')
+		self.logger.info(f'Adding section named {section_info["name"]}...')
 
 		# go to course main page 
 		self.browser.visit(f'https://moodle.telt.unsw.edu.au/course/view.php?id={self.course_id}')
@@ -1872,7 +1928,7 @@ class MoodleUpdater:
 		section_title_els = self.browser.find_by_css('a.quickeditlink')
 		for s_title in section_title_els:
 			if (s_title.text == section_info['name']):
-				print(f'INFO: Section named {section_info["name"]} already exists. Skipped.')
+				self.logger.info(f'Section named {section_info["name"]} already exists. Skipped.')
 				return
 
 		# enable editing by clicking the right button
@@ -1929,7 +1985,7 @@ class MoodleUpdater:
 					time.sleep(1)
 					self.browser.find_option_by_text(r['grouping']).first.click()
 				else:
-					print(f'WARNING restriction type in {r} is not supported yet')
+					self.logger.error(f'Restriction type in {r} is not supported yet')
 				time.sleep(1)
 
 				# toggle 'hide otherwise' eye icon when desired (do so by default)
@@ -1953,12 +2009,12 @@ class MoodleUpdater:
 			hide_section_button.last.click()
 			time.sleep(5)
 
-		print(f'INFO: Added section named {section_info["name"]}.')
+		self.logger.info(f'Added section named {section_info["name"]}.')
 
 	def remove_section (self, section_name):
 		""" Removes a section with the specified name """
 
-		print(f'INFO: Removing section named {section_name}.')
+		self.logger.info(f'Removing section named {section_name}.')
 
 		# go to course main page 
 		self.browser.visit(f'https://moodle.telt.unsw.edu.au/course/view.php?id={self.course_id}')
@@ -1995,11 +2051,11 @@ class MoodleUpdater:
 				delete_section_button.last.click()
 				time.sleep(5)
 
-				print(f'INFO: Removed section named {section_name}.')
+				self.logger.info(f'Removed section named {section_name}.')
 				return
 
 		# else
-		print(f'INFO: Skipped section named {section_name}: does not exist.')
+		self.logger.info(f'Skipped section named {section_name}: does not exist.')
 
 	def export_default_groups_list (self, project_list, tech_stream_list=None, replace_terms={}):
 		""" Generates a csv file for importing into Moodle with basic group and grouping setup """
@@ -2046,11 +2102,11 @@ class MoodleUpdater:
 					fo.write(f'\n"Technical Stream Group - {tname} (Online)","Technical Stream Grouping - All"')
 					fo.write(f'\n"Technical Stream Group - {tname} (OnCampus)","Technical Stream Grouping - All"')
 
-			print(f'\nExported groups list to {output_path}\n\n')
+			self.logger.info(f'\nExported groups list to {output_path}\n\n')
 
 	def get_workshop_grades (self, assessment_id):
 		""" EXPERIMENTAL Download grades from a UNSW Workshop tool """
-		print(f'\nDownloading workshop grades for {assessment_id}')
+		self.logger.info(f'\nDownloading workshop grades for {assessment_id}')
 
 		self.browser.visit(f'https://moodle.telt.unsw.edu.au/mod/workshep/view.php?id={assessment_id}')
 		time.sleep(10)
@@ -2103,7 +2159,7 @@ class MoodleUpdater:
 				for grade in sub['grades']:
 					f.write(f'\n"{sub["name"]}",-,{sub["submission"]},{grade["grade"]},"{grade["marker"]}",-')
 
-		print(f'\nExported workshop grades for {assessment_id} to {output_path}')
+		self.logger.info(f'\nExported workshop grades for {assessment_id} to {output_path}')
 
 
 class LMUpdater:
