@@ -823,7 +823,7 @@ class TeamsUpdater:
 
 		self.logger.log(f'Exported class list to {output_path}\n\n')
 
-	def get_team (self, team_id):
+	def get_team (self, team_id, get_channels=False):
 		""" Get basic team info """
 		self.ensure_connected()
 
