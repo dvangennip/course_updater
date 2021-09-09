@@ -1550,15 +1550,14 @@ class TeamsUpdater:
 		return team_info
 
 
-class MoodleUpdater:
+class MoodleBrowser:
 	"""
-	Class that enables a small number of repetitive operations on Moodle
-
-	Course id is unique, look at the url on Moodle to find the id for the course
+	Reusable browser connection to Moodle
+	Allows for reusing the same login session with multiple MoodleUpdater instances,
+	so several courses can be handled without having to login for each of them.
 	"""
-	def __init__ (self, course_id, username, password, logger=None):
-		self.course_id = course_id
-		self.csv_file  = None
+	def __init__ (self, username, password, logger=None):
+		self.browser   = None
 		self.logged_in = False
 
 		if (logger == None):
@@ -1588,6 +1587,7 @@ class MoodleUpdater:
 			'browser.helperApps.alertOnEXEOpen'         : 'false',
 			'browser.download.manager.focusWhenStarting': 'false'
 		}
+		# TODO headless=True currently causes a crash...
 		self.browser = Browser('firefox', profile_preferences=profile_preferences, headless=False)
 		
 		# login - will go to O365 authentication
@@ -1630,6 +1630,47 @@ class MoodleUpdater:
 		else:
 			return False  # re-raise the exception to be transparent
 
+
+class MoodleUpdater:
+	"""
+	Class that enables a small number of repetitive operations on Moodle
+
+	Course id is unique, look at the url on Moodle to find the id for the course
+	"""
+	def __init__ (self, course_id, username=None, password=None, browser=None, logger=None):
+		self.course_id = course_id
+		self.csv_file  = None
+		self.logged_in = False
+
+		if (logger == None):
+			self.logger = Logger()
+		else:
+			self.logger = logger
+
+		if (browser == None):
+			self.browser = MoodleBrowser(username, password, logger)
+		else:
+			self.browser = browser
+
+		# convenience variable for short/more readable code
+		self.b = self.browser.browser
+
+	def close (self):
+		self.browser.close()
+
+	def __enter__ (self):
+		""" enables the use of the `with` statement """
+		return self
+
+	def __exit__ (self, type, value, traceback):
+		""" so we can exit after using the `with` statement """
+		self.close()
+
+		if (traceback is None):  # no exception occured
+			pass
+		else:
+			return False  # re-raise the exception to be transparent
+
 	def get_users_csv (self):
 		"""
 		Downloads the user list as csv export from Moodle
@@ -1640,19 +1681,19 @@ class MoodleUpdater:
 		self.logger.info('Getting user data CSV file from Moodle...')
 	
 		# get all users on one page
-		self.browser.visit(f'https://moodle.telt.unsw.edu.au/user/index.php?id={self.course_id}&perpage=5000&selectall=1')
+		self.b.visit(f'https://moodle.telt.unsw.edu.au/user/index.php?id={self.course_id}&perpage=5000&selectall=1')
 		# give extra time to let large page settle
 		time.sleep(30)
 		# check if the 'select all' checkbox is ticked (should be per the url but fails with slow/large courses)
-		checkbox_el    = self.browser.find_by_id('select-all-participants')
-		checkbox_label = self.browser.find_by_css('label[for=select-all-participants]')
+		checkbox_el    = self.b.find_by_id('select-all-participants')
+		checkbox_label = self.b.find_by_css('label[for=select-all-participants]')
 		# .text says 'Deselect all' if it's checked; 'Select all' if unchecked
 		if (checkbox_label.text != 'Deselect all'):
 			checkbox_el.click()  # select it now
 			time.sleep(5)        # can be slow with 1000+ users
 
 		# find the course name
-		course_name = self.browser.find_by_tag('h1')[0].text
+		course_name = self.b.find_by_tag('h1')[0].text
 		filename    = course_name.lower().replace(' ','-').replace('&','-') + '.csv'
 
 		# temporarily move the current file if it exists
@@ -1663,7 +1704,7 @@ class MoodleUpdater:
 		
 		# select the export CSV option (which triggers a download)
 		self.logger.info('Downloading user list as CSV...')
-		el = self.browser.find_by_id('formactionid')
+		el = self.b.find_by_id('formactionid')
 		el.select('exportcsv.php')
 
 		# it is assumed the file is now automatically downloaded to the current working folder
@@ -1696,7 +1737,7 @@ class MoodleUpdater:
 		self.logger.info('Getting grouping data from Moodle...')
 		
 		# go to grouping overview page
-		self.browser.visit(f'https://moodle.telt.unsw.edu.au/group/groupings.php?id={self.course_id}')
+		self.b.visit(f'https://moodle.telt.unsw.edu.au/group/groupings.php?id={self.course_id}')
 
 		time.sleep(5)
 
@@ -1709,7 +1750,7 @@ class MoodleUpdater:
 		#			<td class=cell c1>group1, group2</td>
 
 		# find the table
-		table = self.browser.find_by_css('table[class=generaltable]').first
+		table = self.b.find_by_css('table[class=generaltable]').first
 		
 		# within .generaltable, get all elements with class 'cell c0' and 'cell c1'
 		grouping_list_els = table.find_by_xpath(".//td[@class='cell c0']")
@@ -1757,7 +1798,7 @@ class MoodleUpdater:
 		self.logger.info('Getting grades data CSV file from Moodle...')
 		
 		# go to grades download page (and just get all grades)
-		self.browser.visit(f'https://moodle.telt.unsw.edu.au/grade/export/txt/index.php?id={self.course_id}')
+		self.b.visit(f'https://moodle.telt.unsw.edu.au/grade/export/txt/index.php?id={self.course_id}')
 
 		# click download button (name of input: 'submitbutton')
 		self.browser.find_by_id('id_submitbutton').click()
@@ -1786,25 +1827,25 @@ class MoodleUpdater:
 		self.logger.info(f'Auto-creating groups by {group_by_type}...')
 		
 		# go straight to the auto-create groups page for the course
-		self.browser.visit(f'https://moodle.telt.unsw.edu.au/group/autogroup.php?courseid={self.course_id}')
+		self.b.visit(f'https://moodle.telt.unsw.edu.au/group/autogroup.php?courseid={self.course_id}')
 		
 		# pick the grouping type
-		group_type_el = self.browser.find_by_id('id_groupby')
+		group_type_el = self.b.find_by_id('id_groupby')
 		group_type_el.select( group_by_type.lower().replace(' ', '') )
 
 		if (grouping_name is not None):
 			# make the grouping selection area visible
-			grouping_field_el  = self.browser.find_by_id('id_groupinghdr')
+			grouping_field_el  = self.b.find_by_id('id_groupinghdr')
 			grouping_header_el = grouping_field_el.first.find_by_tag('a')
 			grouping_header_el.click()
 
 			# select the option (make sure to pick the last one as it may occur more than once elsewhere on the page)
-			# grouping_select_el = self.browser.find_by_id('id_grouping')
-			self.browser.find_option_by_text( grouping_name ).last.click()
-			# alt method: self.browser.select(selection_box_element, desired_option)
+			# grouping_select_el = self.b.find_by_id('id_grouping')
+			self.b.find_option_by_text( grouping_name ).last.click()
+			# alt method: self.b.select(selection_box_element, desired_option)
 
 		# submit the form
-		self.browser.find_by_id('id_submitbutton').click()
+		self.b.find_by_id('id_submitbutton').click()
 
 		# give additional time to settle
 		time.sleep(5)
@@ -1826,14 +1867,14 @@ class MoodleUpdater:
 		self.logger.info(f'Adding the {category_info["name"]} gradebook category...')
 
 		# go straight to add/edit gradebook category page
-		self.browser.visit(f'https://moodle.telt.unsw.edu.au/grade/edit/tree/category.php?courseid={self.course_id}')
+		self.b.visit(f'https://moodle.telt.unsw.edu.au/grade/edit/tree/category.php?courseid={self.course_id}')
 
 		# give some time to settle
 		time.sleep(10)
 
 		# expand all panes to simplify later steps
-		# expand_el = self.browser.find_by_css('a[class=collapseexpand]')  # causes crash now...
-		expand_el = self.browser.links.find_by_text('Expand all')
+		# expand_el = self.b.find_by_css('a[class=collapseexpand]')  # causes crash now...
+		expand_el = self.b.links.find_by_text('Expand all')
 		try:
 			expand_el.click()
 		except:
@@ -1842,21 +1883,21 @@ class MoodleUpdater:
 		# set fields
 		# category name
 		if ('name' in category_info):
-			self.browser.find_by_css('input[id=id_fullname]').fill(category_info['name'])
+			self.b.find_by_css('input[id=id_fullname]').fill(category_info['name'])
 		# aggregation method           
 		if (category_info['aggregation']):
-			self.browser.find_option_by_text( category_info['aggregation'] ).first.click()
+			self.b.find_option_by_text( category_info['aggregation'] ).first.click()
 		# ID number
 		if ('id' in category_info):
-			self.browser.find_by_css('input[id=id_grade_item_idnumber]').fill(category_info['id'])
+			self.b.find_by_css('input[id=id_grade_item_idnumber]').fill(category_info['id'])
 		# max grade
 		if ('grade_max' in category_info):
-			self.browser.find_by_css('input[id=id_grade_item_grademax]').fill(str(category_info['grade_max']))
+			self.b.find_by_css('input[id=id_grade_item_grademax]').fill(str(category_info['grade_max']))
 		# parent category
 		if ('parent_category' in category_info):
-			self.browser.find_option_by_text( category_info['parent_category'] ).first.click()
+			self.b.find_option_by_text( category_info['parent_category'] ).first.click()
 
-		save_button_el = self.browser.find_by_id('id_submitbutton')
+		save_button_el = self.b.find_by_id('id_submitbutton')
 		save_button_el.click()
 
 		# give some time to settle
@@ -1871,7 +1912,7 @@ class MoodleUpdater:
 			while (continue_button_not_found):
 				time.sleep(5)
 				# TODO improve finding process to get this unique button
-				continue_el = self.browser.find_by_css('button[type=submit]')
+				continue_el = self.b.find_by_css('button[type=submit]')
 
 				if (continue_el == []):  # empty list means element is not found
 					continue
@@ -1888,7 +1929,7 @@ class MoodleUpdater:
 			# first, find category_weight_id on the page
 			# iterate over every relevant label and check the .text value for a match
 			category_weight_id = None
-			label_els          = self.browser.find_by_css('label[class=accesshide]')
+			label_els          = self.b.find_by_css('label[class=accesshide]')
 			
 			for l in label_els:
 				if (l.text == f"Extra credit value for {category_info['name']}"):
@@ -1896,11 +1937,11 @@ class MoodleUpdater:
 					break  # found the right one, exit for loop early
 			
 			if (category_weight_id is not None):
-				weight_el = self.browser.find_by_css(f'input[id={category_weight_id}]')
+				weight_el = self.b.find_by_css(f'input[id={category_weight_id}]')
 				weight_el.fill(str(category_info['weight']))
 
 				# submit changes
-				self.browser.find_by_css('input[value=Save\ changes]').click()
+				self.b.find_by_css('input[value=Save\ changes]').click()
 
 				time.sleep(5)
 
@@ -1919,19 +1960,19 @@ class MoodleUpdater:
 		self.logger.info(f'Adding section named {section_info["name"]}...')
 
 		# go to course main page 
-		self.browser.visit(f'https://moodle.telt.unsw.edu.au/course/view.php?id={self.course_id}')
+		self.b.visit(f'https://moodle.telt.unsw.edu.au/course/view.php?id={self.course_id}')
 
 		time.sleep(10)
 
 		# first check if section already exists
-		section_title_els = self.browser.find_by_css('a.quickeditlink')
+		section_title_els = self.b.find_by_css('a.quickeditlink')
 		for s_title in section_title_els:
 			if (s_title.text == section_info['name']):
 				self.logger.info(f'Section named {section_info["name"]} already exists. Skipped.')
 				return
 
 		# enable editing by clicking the right button
-		buttons = self.browser.find_by_css('button[type=submit]')
+		buttons = self.b.find_by_css('button[type=submit]')
 		for b in buttons:
 			if (b.text == 'Turn editing on'):
 				b.click()
@@ -1944,55 +1985,55 @@ class MoodleUpdater:
 				break  # we're in the editing mode already
 
 		# add an empty section
-		self.browser.find_by_css('a[class=increase-sections]').click()
+		self.b.find_by_css('a[class=increase-sections]').click()
 		# wait for page to reload
 		time.sleep(10)
 
 		# edit section
-		section    = self.browser.find_by_css('li.section').last
+		section    = self.b.find_by_css('li.section').last
 		section_id = section['aria-labelledby'].replace('sectionid-', '').replace('-title', '')
-		self.browser.visit(f'https://moodle.telt.unsw.edu.au/course/editsection.php?id={section_id}&sr=0')
+		self.b.visit(f'https://moodle.telt.unsw.edu.au/course/editsection.php?id={section_id}&sr=0')
 		
 		time.sleep(10)
 
 		# expand all panes to simplify later steps
-		expand_el = self.browser.find_by_css('a[class=collapseexpand]')
+		expand_el = self.b.find_by_css('a[class=collapseexpand]')
 		expand_el.click()
 
 		# fill name
 		if ('name' in section_info):
 			# enable a custom name
-			self.browser.find_by_id('id_name_customize').click()
+			self.b.find_by_id('id_name_customize').click()
 
-			self.browser.find_by_id('id_name_value').fill(section_info['name'])
+			self.b.find_by_id('id_name_value').fill(section_info['name'])
 		# fill description
 		if ('description' in section_info):
-			self.browser.find_by_id('id_summary_editor').fill(section_info['description'])
+			self.b.find_by_id('id_summary_editor').fill(section_info['description'])
 		
 		# set access restrictions
 		if ('restrictions' in section_info):
 			for r in section_info['restrictions']:
-				self.browser.find_by_text('Add restriction...').click()
+				self.b.find_by_text('Add restriction...').click()
 				time.sleep(1)
 
 				if ('group' in r):
-					self.browser.find_by_id('availability_addrestriction_group').click()
+					self.b.find_by_id('availability_addrestriction_group').click()
 					time.sleep(1)
-					self.browser.find_option_by_text(r['group']).first.click()
+					self.b.find_option_by_text(r['group']).first.click()
 				elif ('grouping' in r):
-					self.browser.find_by_id('availability_addrestriction_grouping').click()
+					self.b.find_by_id('availability_addrestriction_grouping').click()
 					time.sleep(1)
-					self.browser.find_option_by_text(r['grouping']).first.click()
+					self.b.find_option_by_text(r['grouping']).first.click()
 				else:
 					self.logger.error(f'Restriction type in {r} is not supported yet')
 				time.sleep(1)
 
 				# toggle 'hide otherwise' eye icon when desired (do so by default)
-				availability_eye_el = self.browser.find_by_css('a.availability-eye')
+				availability_eye_el = self.b.find_by_css('a.availability-eye')
 				availability_eye_el.last.click()
 
 		# save changes
-		self.browser.find_by_id('id_submitbutton').click()
+		self.b.find_by_id('id_submitbutton').click()
 
 		# returning to main sectin view
 		time.sleep(10)
@@ -2000,11 +2041,11 @@ class MoodleUpdater:
 		# set hidden state (must be done from section view)
 		if ('hidden' in section_info and section_info['hidden'] == True):
 			# first, toggle the edit popup to be visible, then click the hide button within
-			edit_toggle_buttons = self.browser.find_by_css('a.dropdown-toggle')
+			edit_toggle_buttons = self.b.find_by_css('a.dropdown-toggle')
 			edit_toggle_buttons.last.click()
 			time.sleep(0.5)
 
-			hide_section_button = self.browser.find_by_text('Hide section')
+			hide_section_button = self.b.find_by_text('Hide section')
 			hide_section_button.last.click()
 			time.sleep(5)
 
@@ -2016,12 +2057,12 @@ class MoodleUpdater:
 		self.logger.info(f'Removing section named {section_name}.')
 
 		# go to course main page 
-		self.browser.visit(f'https://moodle.telt.unsw.edu.au/course/view.php?id={self.course_id}')
+		self.b.visit(f'https://moodle.telt.unsw.edu.au/course/view.php?id={self.course_id}')
 
 		time.sleep(10)
 
 		# enable editing by clicking the right button
-		buttons = self.browser.find_by_css('button[type=submit]')
+		buttons = self.b.find_by_css('button[type=submit]')
 		for b in buttons:
 			if (b.text == 'Turn editing on'):
 				b.click()
@@ -2034,7 +2075,7 @@ class MoodleUpdater:
 				break  # we're in the editing mode already
 
 		# find sections
-		sections = self.browser.find_by_css('li.section.main')
+		sections = self.b.find_by_css('li.section.main')
 		
 		for section in sections:
 			# first check if section exists
@@ -2107,11 +2148,11 @@ class MoodleUpdater:
 		""" EXPERIMENTAL Download grades from a UNSW Workshop tool """
 		self.logger.info(f'\nDownloading workshop grades for {assessment_id}')
 
-		self.browser.visit(f'https://moodle.telt.unsw.edu.au/mod/workshep/view.php?id={assessment_id}')
+		self.b.visit(f'https://moodle.telt.unsw.edu.au/mod/workshep/view.php?id={assessment_id}')
 		time.sleep(10)
 
 		# get table data
-		table      = self.browser.find_by_css('table.grading-report')
+		table      = self.b.find_by_css('table.grading-report')
 		table_rows = table.find_by_tag('tbody').find_by_tag('tr')
 
 		submission_data = []
