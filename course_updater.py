@@ -111,11 +111,13 @@ class Logger:
 		full_message = f'{level} - {message}'
 
 		# add colour coding to terminal output
-		if (level == 'debug'):
+		if (level == 'CONFIRM'):
+			print(f'{colorama.Style.BRIGHT}{colorama.Fore.GREEN}{full_message}{colorama.Style.RESET_ALL}')
+		elif (level == 'DEBUG'):
 			print(f'{colorama.Fore.BLUE}{full_message}{colorama.Style.RESET_ALL}')
-		if (level == 'warning'):
+		elif (level == 'WARNING'):
 			print(f'{colorama.Fore.MAGENTA}{full_message}{colorama.Style.RESET_ALL}')
-		elif (level == 'error'):
+		elif (level == 'ERROR'):
 			print(f'{colorama.Style.BRIGHT}{colorama.Back.RED}{colorama.Fore.WHITE}{full_message}{colorama.Style.RESET_ALL}')
 		else:
 			print(full_message)
@@ -126,6 +128,9 @@ class Logger:
 
 	def info (self, message):
 		self.log(message)
+
+	def confirm (self, message):
+		self.log(message, 'CONFIRM')
 
 	def debug (self, message):
 		self.log(message, 'DEBUG')
