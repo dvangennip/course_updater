@@ -13,6 +13,8 @@ A script to automate updating MS Teams based on Moodle input
 	- Use on Windows may need some changes to filepaths, etc.
 
 ## TO DO
+- Work around current add-user as owner bug
+- Improve csv output code by using csv.DictWriter, if feasible
 - Add automatic ability to recognise Connect-MicrosoftTeams login account (zID) and add this to exclusion IDs to avoid accidental self-removal?
 	- alt idea: if this is actually desired, have a prompt to check and get approval -> add a current_user variable to check against
 - Error handling
