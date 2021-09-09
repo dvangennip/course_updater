@@ -1158,9 +1158,16 @@ class TeamsUpdater:
 		if (description != None):
 			desc = f' -Description "{description}"'
 
+		# ensure channel type is correctly fed into command
+		ctype = channel_type.lower()
+		if (ctype == 'private'):
+			ctype = 'Private'
+		else:
+			ctype = 'Standard'
+
 		# create channel
 		response = self.process.run_command(
-			f'New-TeamChannel -GroupId {team_id} -DisplayName "{channel_name}" -MembershipType {channel_type}{desc}',
+			f'New-TeamChannel -GroupId {team_id} -DisplayName "{channel_name}" -MembershipType {ctype}{desc}',
 			convert_json = True
 		)
 
