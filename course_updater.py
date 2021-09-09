@@ -462,6 +462,9 @@ class TeamsUpdater:
 		self.connected = False
 		self.username  = username
 		self.password  = password
+
+		# temp variables
+		self.user_channel_bug_counter = 0
 	
 	def __enter__ (self):
 		""" enables the use of the `with` statement (as in `with TeamsUpdater() as tu:`) """
@@ -1230,22 +1233,25 @@ class TeamsUpdater:
 
 		# owners need to be added as regular members first, then once more to set the owner status
 		if (response.find('User is not found in the team.') == -1 and role == 'Owner'):
-			# TODO temporarily disabled due to a bug in PS module
-			self.log(f'Skipped adding {role} status for {user} due to PS module bug', 'WARNING')
-			# response = self.process.run_command(
-			# 	f'Add-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}" -User {user.id}@ad.unsw.edu.au -Role {role}'
-			# )
+			# TODO disable after some tries due to a bug in PS module
+			if (self.user_channel_bug_counter > 5):
+				self.logger.warning(f'Skipped adding {role} status for {user} due to PS module bug')
+			else:
+				response = self.process.run_command(
+					f'Add-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}" -User {user.id}@ad.unsw.edu.au -Role {role}'
+				)
 
 		# parse response
 		success = True
 		# empty response is sign of success, so check for that
 		if (len(response) == 0):
-			self.log(f'Channel {channel_name}: Added {user} as {role}')
+			self.logger.info(f'Channel {channel_name}: Added {user} as {role}')
 		else:
+			if (response.find('Failed to find the user on the channel roster')):
+				self.user_channel_bug_counter += 1
 			# if (response.find('User is not found in the team.') != -1 or response.find('Could not find member.') != -1 or response.find('Authorization_RequestDenied') !=-1):
-			# elif 'Failed to find the user on the channel roster.'
 			success = False
-			self.log(f'Channel {channel_name}: Could not add {user} as {role}', 'ERROR')
+			self.logger.error(f'Channel {channel_name}: Could not add {user} as {role}')
 
 		return success
 
