@@ -107,32 +107,34 @@ class Logger:
 		self.log_file = open('teams_updater.log', 'a')
 		self.log_file.write('\n\n\n~~~ NEW LOG ~~~ ~~~ ~~~ ~~~')
 
-	def log (self, action='', level='INFO'):
-		message = f'{level} - {action}'
+	def log (self, message, level='INFO'):
+		full_message = f'{level} - {message}'
 
 		# add colour coding to terminal output
 		if (level == 'debug'):
-			print(f'{colorama.Fore.BLUE}{message}{colorama.Style.RESET_ALL}')
+			print(f'{colorama.Fore.BLUE}{full_message}{colorama.Style.RESET_ALL}')
 		if (level == 'warning'):
-			print(f'{colorama.Fore.MAGENTA}{message}{colorama.Style.RESET_ALL}')
+			print(f'{colorama.Fore.MAGENTA}{full_message}{colorama.Style.RESET_ALL}')
 		elif (level == 'error'):
-			print(f'{colorama.Style.BRIGHT}{colorama.Back.RED}{colorama.Fore.WHITE}{message}{colorama.Style.RESET_ALL}')
+			print(f'{colorama.Style.BRIGHT}{colorama.Back.RED}{colorama.Fore.WHITE}{full_message}{colorama.Style.RESET_ALL}')
+		else:
+			print(full_message)
 
-		self.log_file.write(f'\n{datetime.now()} {message}')
+		self.log_file.write(f'\n{datetime.now()} {full_message}')
 		# ensure it is written rightaway to avoid loss of log data upon a crash
 		self.log_file.flush()
 
-	def info (self, action=''):
-		self.log(action)
+	def info (self, message):
+		self.log(message)
 
-	def debug (self, action=''):
-		self.log(action, 'DEBUG')
+	def debug (self, message):
+		self.log(message, 'DEBUG')
 
-	def warning (self, action=''):
-		self.log(action, 'WARNING')
+	def warning (self, message):
+		self.log(message, 'WARNING')
 
-	def error (self, action=''):
-		self.log(action, 'ERROR')
+	def error (self, message):
+		self.log(message, 'ERROR')
 
 	def close (self):
 		self.log_file.close()
