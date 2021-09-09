@@ -1553,25 +1553,26 @@ class TeamsUpdater:
 			self.set_team_picture(stream_data['team_id'], f'../Logos/{my_course_code}-{stream.lower()}.png')
 
 		# ---- create channels ----
-		# add public channels
-		# TODO work from a supplied list rather than hard-coded channels
-		if ('Forum' not in team_info['channels']):
-			self.create_channel(stream_data['team_id'], 'Forum', description='A place for student discussion, asking questions, etc.')
-
-		# add private channels
-		if ('z_Demonstrators' not in team_info['channels']):
-			self.create_channel(stream_data['team_id'], 'z_Demonstrators', 'Private', description='Private channel for demonstrator discussions')
-
 		# class channels
 		self.convenience_create_class_channels(stream_data, team_info['channels'])
+
+		# additional channels
+		for channel in stream_data['channels']:
+			if (channel['name'] not in team_info['channels'] and channel['channel']):
+				self.create_channel(stream_data['team_id'], channel['name'], channel_type=channel['channel'], description=channel['description'])
 
 		# ---- sync members ----
 		if (sync_staff):
 			# update team owners
 			self.update_team(stream_data['team_id'], stream_owners, role='Owner', remove_allowed=remove_staff_allowed)
 
-			# sync demonstrator channel
-			self.update_channel(stream_data['team_id'], 'z_Demonstrators', stream_owners, remove_allowed=remove_staff_allowed)
+			# sync additional channels
+			for channel in stream_data['channels']:
+				if (channel['channel'] == 'private'):
+					# TODO improve owners and members approach and removal allowance
+					#      this config only works for staff-only channels, like a demonstrator channel
+					#      would need a member and owner configuration of some sort
+					self.update_channel(stream_data['team_id'], channel['name'], stream_owners, remove_allowed=remove_staff_allowed)
 
 		# sync private class channels
 		self.convenience_sync_class_channels(stream_data, stream_owners, sync_staff=sync_staff, sync_students=sync_students, remove_staff_allowed=remove_staff_allowed, remove_students_allowed=remove_students_allowed)
