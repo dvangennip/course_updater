@@ -2,15 +2,13 @@
 
 #####
 # script requires python version 3.7+, powershell 7+, and the PS Teams module to be installed
-# only tested on MacOS 10.15
+# only tested on macOS 10.15
 #
 # generally, this script is as resilient as a toddler with icecream in their hand
 # it will drop and create a scene at some stage...
 #####
 
 from dataclasses import dataclass, field
-# from typing import Dict
-
 import csv
 from datetime import datetime
 import subprocess
@@ -104,7 +102,7 @@ class Logger:
 		colorama.init()
 
 		# open log file
-		self.log_file = open('teams_updater.log', 'a')
+		self.log_file = open('course_updater.log', 'a')
 		self.log_file.write('\n\n\n~~~ NEW LOG ~~~ ~~~ ~~~ ~~~')
 
 	def log (self, message, level='INFO'):
