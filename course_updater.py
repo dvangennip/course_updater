@@ -197,12 +197,15 @@ class PowerShellWrapper:
 	
 	very simple, very likely not to work with most edge cases.
 	"""
-	def __init__ (self, lazy_start=False, debug=True):
+	def __init__ (self, lazy_start=False, debug=True, login_method=None, username=None, password=None):
 		self.latest_output      = ''
 		self.connected_to_teams = False
 		self.count              = 0
 		self.process            = None
 		self.debug_mode         = debug
+		self.username           = username
+		self.password           = password
+		self.login_method       = login_method
 
 		if (self.debug_mode):
 			self.log = open('cmd_logs/alog.txt', 'w')
@@ -257,10 +260,10 @@ class PowerShellWrapper:
 		The shakily beating heart of this wrapper.
 		It takes a command and feeds that into the powershell process, parsing any output it generates.
 
-		This method returns whenever it re-encounters the command prompt, usually the signal a command was processed.
+		This method returns whenever it re-encounters the command prompt, which is usually the signal that a command was processed.
 		Alternatively, passing a string to `return_if_found` will stop once that string is encountered in the process output.
 
-		Set `convert_json` to True when expecting output that needs parsing.
+		Set `convert_json` to True when expecting output that can be parsed into JSON.
 		"""
 		self.ensure_started()
 
@@ -345,7 +348,7 @@ class PowerShellWrapper:
 
 		return output
 
-	def connect_to_teams (self, login_method='popup', username=None, password=None):
+	def connect_to_teams (self):
 		"""
 		Running any commands from the MicrosoftTeams pwoershell module requires an active login
 		This method logs in automatically, either by just giving a popup or by attempting a fully
@@ -360,21 +363,20 @@ class PowerShellWrapper:
 		else:
 			response = ''
 
-			if (login_method == 'popup' or login_method == 'default'):
+			if (self.login_method == None or self.login_method == 'popup' or self.login_method == 'default'):
 				# login via a browser window/popup - works but needs user input via browser
 				response = self.run_command('Connect-MicrosoftTeams')
 			else:
 				# get username and password
-				username = username
-				if (username is None):
-					username = input('Username: ')
-				if (username.find('@') == -1):
-					username += '@ad.unsw.edu.au'
-				password = password
-				if (password is None):
-					password = getpass.getpass(prompt='Password: ')
+				if (self.username is None):
+					self.username = input('Username: ')
+				if (self.username.find('@') == -1):
+					self.username += '@ad.unsw.edu.au'
+				
+				if (self.password is None):
+					self.password = getpass.getpass(prompt='Password: ')
 
-				if (login_method == 'automated'):
+				if (self.login_method == 'automated'):
 					# login via browser window but automate all actions
 					try:
 						b = Browser('firefox', headless=False, incognito=True)
@@ -400,13 +402,13 @@ class PowerShellWrapper:
 						# assume we're on a clean slate login (no history or existing login)
 
 						# fill in username
-						b.fill('loginfmt', username)
+						b.fill('loginfmt', self.username)
 						b.find_by_id('idSIButton9').click()
 						# wait for next page
 						time.sleep(2)
 
 						# second up, password
-						b.fill('passwd', password)
+						b.fill('passwd', self.password)
 						b.find_by_id('idSIButton9').click()
 						time.sleep(4)
 
@@ -420,13 +422,13 @@ class PowerShellWrapper:
 						b.quit()
 					except Exception as e:
 						print(e)
-				elif (login_method == 'credentials'):
+				elif (self.login_method == 'credentials'):
 					# note: this procedure doesn't work because basic authentication uni tenant doesn't support the right sign-on protocols
 					#       would be cool though...
 
 					# first, setup a credential object based on login details
-					self.run_command(f'$User = "{username}"')
-					self.run_command(f'$PWord = ConvertTo-SecureString -String "{password}" -AsPlainText -Force')
+					self.run_command(f'$User = "{self.username}"')
+					self.run_command(f'$PWord = ConvertTo-SecureString -String "{self.password}" -AsPlainText -Force')
 					self.run_command('$Credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $User, $PWord')
 					
 					# use credentials to connect (avoids a user prompt)
@@ -445,7 +447,7 @@ class TeamsUpdater:
 	"""
 	Wrapper around powershell teams commands, with additional logic to keep teams and channels in sync with an external list.
 	"""
-	def __init__ (self, path=None, whitelist={}, process=None, username=None, password=None, logger=None):
+	def __init__ (self, path=None, whitelist={}, process=None, username=None, password=None, logger=None, prevent_self_removal=True):
 		if (logger == None):
 			self.logger = Logger()
 		else:
@@ -471,14 +473,24 @@ class TeamsUpdater:
 		# user ids that should not be touched as these are uni-managed service accounts
 		self.exclusion_ids = ['svco365teamsmanage']
 
-		# assign existing external process to connect to powershell
-		#    creating a new one, if no process is provided, is deferred until necessary
-		#    this significantly speeds up running the code as we can skip slow parts unless required
-		self.process = process
-
 		self.connected = False
 		self.username  = username
 		self.password  = password
+
+		# assign existing external process to connect to powershell
+		self.process   = process
+
+		if (self.process is None):
+			self.process_internal = True
+			self.process          = PowerShellWrapper(lazy_start=True, login_method='credentials', username=self.username, password=self.password)
+		else:
+			self.process_internal = False
+
+		# optionally, safeguard against self-removal
+		if (prevent_self_removal):
+			if (self.username == None):
+				self.username = self.process.username
+			self.exclusion_ids.append( self.username.replace('@ad.unsw.edu.au','') )
 
 		# temp variables
 		self.user_channel_bug_counter = 0
@@ -501,22 +513,16 @@ class TeamsUpdater:
 		Ensures we're connected to Teams backend whenever this method is called
 		A call to this method should be added anywhere a process command is sent to the Teams backend.
 		By only connecting when required, we skip the time-consuming login whenever possible.
-
-		TODO remove this as lazy_start functionality is integrated into wrapper itself
 		"""
-		if (self.connected == False and self.process is None):
-			self.logger.log('Establishing connection with MicrosoftTeams powershell module')
-
-		# first, ensure we have a working process
-		if (self.process is None):
-			self.process          = PowerShellWrapper()
-			self.process_internal = True
-		else:
-			self.process_internal = False
-
-		# then, ensure the process is connected to Teams in the cloud
 		if (self.connected == False):
-			self.connected = self.process.connect_to_teams('credentials', self.username, self.password)
+			self.logger.info('Connecting to Teams via PowerShellWrapper')
+			self.connected = self.process.connect_to_teams()
+
+			# try again if we're connected
+			if (self.connected):
+				self.logger.confirm('Connected to Teams')
+			else:
+				self.logger.error('Not connected to Teams. Expect trouble...')
 
 		return self.connected
 	
