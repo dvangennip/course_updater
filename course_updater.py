@@ -1710,7 +1710,7 @@ class MoodleUpdater:
 		else:
 			return False  # re-raise the exception to be transparent
 
-	def get_users_csv (self):
+	def get_users_csv (self, auto_confirm=True):
 		"""
 		Downloads the user list as csv export from Moodle
 
@@ -1749,9 +1749,19 @@ class MoodleUpdater:
 		# it is assumed the file is now automatically downloaded to the current working folder
 		#   however, there is no way of knowing the file has finished downloading
 		#   so this needs some intervention...
-		Notifier.notify('Moodle csv download', 'Check download status and confirm')
-		got_file = input('Downloaded file? [Y]es or [N]o: ').lower()
+		got_file = 'no'
 
+		if (auto_confirm):
+			# add some extra buffer to be sure download completed
+			time.sleep(10)
+			if (os.path.exists(filename)):
+				got_file = 'yes'
+		else:
+			# manual confirmation
+			Notifier.notify('Moodle csv download', 'Check download status and confirm')
+			got_file = input('Downloaded file? [Y]es or [N]o: ').lower()
+
+		# continue with downloaded file
 		if ('y' in got_file):
 			self.logger.info(f'Moodle user data downloaded to {filename}')
 
