@@ -1528,6 +1528,49 @@ class TeamsUpdater:
 
 					self.update_channel(stream_data['team_id'], channel_name, class_students, role='Member', remove_allowed=remove_students_allowed)
 
+	def convenience_sync_channels (self, stream_data, sync_staff=True, sync_students=True, remove_staff_allowed=True, remove_students_allowed=True):
+		"""
+		TODO doesn't respect input parameters very well...
+		     could be more generic
+		"""
+		for channel in stream_data['channels']:
+			if (channel['channel'] == 'private'):
+				# work through owner and member configuration
+				for role in ['Owner','Member']:
+					role_name = f'{role.lower()}s' # 'owners' or 'members'
+
+					if (role_name in channel):
+						# defaults
+						users          = self.user_list
+						remove_allowed = remove_students_allowed
+						
+						# implement user list changes and search filter
+						user_list    = None
+						if ('list' in channel[role_name]):
+							user_list = channel[role_name]['list'].lower()
+
+							# handle any special cases
+							if (user_list == 'stream_owners'):
+								users     = stream_data['stream_owners']
+								user_list = stream_data['stream_owners']
+								remove_allowed = remove_staff_allowed
+							# or handle general case
+							elif ('staff' in user_list or 'owner' in user_list):
+								users          = self.user_stafflist
+								user_list      = self.user_stafflist
+								remove_allowed = remove_staff_allowed
+
+						filter_key   = None
+						filter_terms = None
+						if ('filter' in channel[role_name]):
+							filter_key  = channel[role_name]['filter']
+							filter_terms = channel[role_name]['filter_terms']
+						
+							users = self.find_users(filter_key, filter_terms, list_to_search=user_list, return_type='dict')
+						
+						# do actual update
+						self.update_channel(stream_data['team_id'], channel['name'], users, role=role, remove_allowed=remove_allowed)
+
 	def convenience_course_stream_update (self, team_name, stream_name, stream_data, include_staff=True, sync_staff=True, sync_students=True, remove_staff_allowed=True, remove_students_allowed=True, set_team_picture=False):
 		""" Default stream update method, suitable for most courses """
 
@@ -1540,9 +1583,11 @@ class TeamsUpdater:
 			stream_owners = self.convenience_get_stream_owners(stream_name, stream_data, dnext_owners)
 		else:
 			stream_owners = dnext_owners
+		# store for later use
+		stream_data['stream_owners'] = stream_owners
 
 		# ---- get basic team info ----
-		team_info        = self.get_team(stream_data['team_id'], get_channels=True)
+		team_info         = self.get_team(stream_data['team_id'], get_channels=True)
 
 		# ---- set appearance ----
 		# team_name    = f'{my_course_code} {stream} - {my_year} T{my_term}'
@@ -1571,12 +1616,7 @@ class TeamsUpdater:
 			self.update_team(stream_data['team_id'], stream_owners, role='Owner', remove_allowed=remove_staff_allowed)
 
 			# sync additional channels
-			for channel in stream_data['channels']:
-				if (channel['channel'] == 'private'):
-					# TODO improve owners and members approach and removal allowance
-					#      this config only works for staff-only channels, like a demonstrator channel
-					#      would need a member and owner configuration of some sort
-					self.update_channel(stream_data['team_id'], channel['name'], stream_owners, remove_allowed=remove_staff_allowed)
+			self.convenience_sync_channels(stream_data, sync_staff=sync_staff, sync_students=sync_students, remove_staff_allowed=remove_staff_allowed, remove_students_allowed=remove_students_allowed)
 
 		# sync private class channels
 		self.convenience_sync_class_channels(stream_data, stream_owners, sync_staff=sync_staff, sync_students=sync_students, remove_staff_allowed=remove_staff_allowed, remove_students_allowed=remove_students_allowed)
