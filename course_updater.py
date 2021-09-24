@@ -1222,8 +1222,6 @@ class TeamsUpdater:
 		""" Get list of current users in channel, and return a dict with user ids as the keys """
 		self.ensure_connected()
 
-		print(team_id, channel_name, role)
-
 		# add filter if required
 		role_filter = ''
 		if (role != 'All'):
@@ -1267,12 +1265,12 @@ class TeamsUpdater:
 		# owners need to be added as regular members first, then once more to set the owner status
 		if (response.find('User is not found in the team.') == -1 and role == 'Owner'):
 			# TODO disable after some tries due to a bug in PS module
-			if (self.user_channel_bug_counter > 5):
-				self.logger.warning(f'Skipped adding {role} status for {user} due to PS module bug')
-			else:
-				response = self.process.run_command(
-					f'Add-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}" -User {user.id}@ad.unsw.edu.au -Role {role}'
-				)
+			# if (self.user_channel_bug_counter > 5):
+			# 	self.logger.warning(f'Skipped adding {role} status for {user} due to PS module bug')
+			# else:
+			response = self.process.run_command(
+				f'Add-TeamChannelUser -GroupId {team_id} -DisplayName "{channel_name}" -User {user.id}@ad.unsw.edu.au -Role {role}'
+			)
 
 		# parse response
 		success = True
@@ -1283,6 +1281,12 @@ class TeamsUpdater:
 			if (response.find('Failed to find the user on the channel roster')):
 				self.user_channel_bug_counter += 1
 			# if (response.find('User is not found in the team.') != -1 or response.find('Could not find member.') != -1 or response.find('Authorization_RequestDenied') !=-1):
+			"""
+			Add-TeamChannelUser: Error occurred while executing 
+			Code: BadRequest
+			Message: Invalid OData type specified: "Microsoft.Teams.Core.aadUserConversationMember"
+			HttpStatusCode: BadRequest
+			"""
 			success = False
 			self.logger.error(f'Channel {channel_name}: Could not add {user} as {role}')
 
