@@ -732,7 +732,7 @@ class TeamsUpdater:
 					# TODO generalise to allow other terms than 'Project'
 					if (g.find('Project Group - ') != -1):
 						project = re.sub(
-							r'Project Group - (?P<project>.+?) \(.+?\)',  # original
+							r'Project Group - (?P<project>.+?)',  # original   # include \(.+?\) at end to catch (Online|On Campus)
 							r'\g<project>',  # replacement
 							g  # source string
 						)
