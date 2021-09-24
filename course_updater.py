@@ -172,11 +172,11 @@ my_path = 'desn2000-engineering-design---professional-practice---2020-t3.csv'
 
 
 """
-have a whitelist of users not to be removed from channels (demonstrators, etc)
+have a stafflist of users not to be removed from channels (demonstrators, etc)
 these users typically will not feature in Moodle-based ClassID lists
 this list is also expanded with any staff found in a Moodle user file
 """
-my_user_whitelist = []
+my_user_stafflist = []
 
 # -----------------------------------------------------------------------------
 
@@ -445,7 +445,7 @@ class TeamsUpdater:
 	"""
 	Wrapper around powershell teams commands, with additional logic to keep teams and channels in sync with an external list.
 	"""
-	def __init__ (self, path=None, whitelist={}, process=None, username=None, password=None, logger=None, prevent_self_removal=True):
+	def __init__ (self, path=None, stafflist={}, process=None, username=None, password=None, logger=None, prevent_self_removal=True):
 		if (logger == None):
 			self.logger = Logger()
 		else:
@@ -457,13 +457,13 @@ class TeamsUpdater:
 			self.logger.warning('Please provide a filepath to a CSV file that TeamsUpdater can read.')
 			# raise FileNotFoundError
 
-		# create whitelist from input list
+		# create stafflist from input list
 		# note that the list isn't technically a list but rather a dictionary
 		# dicts have the benefit that we can match by id/key value rightaway
 		# not optimal from a neatness point of view but it works fine
-		self.user_whitelist  = {}
-		for name in whitelist:
-			self.user_whitelist[str(name.id)] = name
+		self.user_stafflist  = {}
+		for name in stafflist:
+			self.user_stafflist[str(name.id)] = name
 
 		# master user list (idem, a dict not a list)
 		self.user_list       = {}
@@ -591,18 +591,18 @@ class TeamsUpdater:
 					user['Email address']
 				)
 
-				# users without classes assigned get added to the whitelist
+				# users without classes assigned get added to the stafflist
 				# in Moodle, more or less by definition, no ClassID -> staff
 				if (user['Class ID'] == '-'):
 					# do another check to make sure this user is actually staff
 					#   adding a user to this group requires manual assignment in Moodle
-					#   as an alternative, you can add them into the user whitelist passed in at the start
+					#   as an alternative, you can add them into the user stafflist passed in at the start
 					if (new_user.in_group('Staff (DO NOT REMOVE)')):
 						new_user.owner = True
 
-						# don't overwrite prior whitelist user data
-						if (user_id not in self.user_whitelist):
-							self.user_whitelist[user_id] = new_user
+						# don't overwrite prior stafflist user data
+						if (user_id not in self.user_stafflist):
+							self.user_stafflist[user_id] = new_user
 
 						count_instructors += 1
 					else:
@@ -701,10 +701,10 @@ class TeamsUpdater:
 											# add demonstrator info
 											for did in cl['instructors']:
 												# ensure there is indeed data on a listed demonstrator
-												if (did in self.user_whitelist):
-													tmentor    += ', ' + self.user_whitelist[did].name
+												if (did in self.user_stafflist):
+													tmentor    += ', ' + self.user_stafflist[did].name
 													tmentor_id += ', ' + did
-													tmentor_em += ', ' + self.user_whitelist[did].email
+													tmentor_em += ', ' + self.user_stafflist[did].email
 											
 											tech_stream = tech_stream.replace(    '-, ', '')
 											tmentor     = tmentor.replace(   '-, ', '')
@@ -717,10 +717,10 @@ class TeamsUpdater:
 											# add demonstrator info
 											for did in cl['instructors']:
 												# ensure there is indeed data on a listed demonstrator
-												if (did in self.user_whitelist):
-													pmentor    += ', ' + self.user_whitelist[did].name
+												if (did in self.user_stafflist):
+													pmentor    += ', ' + self.user_stafflist[did].name
 													pmentor_id += ', ' + did
-													pmentor_em += ', ' + self.user_whitelist[did].email
+													pmentor_em += ', ' + self.user_stafflist[did].email
 											
 											pclass     = pclass.replace(    '-, ', '')
 											pmentor    = pmentor.replace(   '-, ', '')
@@ -748,8 +748,8 @@ class TeamsUpdater:
 						pmentor = pmentor.replace(' ', ' ')  # these two 'whitespaces' are not the same...
 
 						# find ID based on name
-						for su in self.user_whitelist:
-							mu = self.user_whitelist[su]
+						for su in self.user_stafflist:
+							mu = self.user_stafflist[su]
 
 							# match against lower case to avoid minor spelling issues to cause mismatches
 							if (mu.name.lower() == pmentor.lower()):
@@ -778,8 +778,8 @@ class TeamsUpdater:
 
 							# find ID based on name
 							if (tmentor != '-'):
-								for su in self.user_whitelist:
-									mu = self.user_whitelist[su]
+								for su in self.user_stafflist:
+									mu = self.user_stafflist[su]
 
 									# match against lower case to avoid minor spelling issues to cause mismatches
 									if (mu.name.lower() == tmentor.lower()):
@@ -793,10 +793,10 @@ class TeamsUpdater:
 					pcoordinator_id = project_list[project]['coordinators']
 					
 					for index, pid in enumerate(pcoordinator_id):
-						# if user is in list but not on Moodle, it may not be in whitelist yet
-						if (pid in self.user_whitelist):
-							pcoordinator    += ', ' + self.user_whitelist[pid].name
-							pcoordinator_em += ', ' + self.user_whitelist[pid].email
+						# if user is in list but not on Moodle, it may not be in stafflist yet
+						if (pid in self.user_stafflist):
+							pcoordinator    += ', ' + self.user_stafflist[pid].name
+							pcoordinator_em += ', ' + self.user_stafflist[pid].email
 
 							if (index == 0):
 								pcoordinator    = pcoordinator.replace('-, ','')
@@ -806,10 +806,10 @@ class TeamsUpdater:
 					tcoordinator_id = tech_stream_list[tech_stream]['coordinators']
 					
 					for index, tid in enumerate(tcoordinator_id):
-						# if user is in list but not on Moodle, it may not be in whitelist yet
-						if (pid in self.user_whitelist):
-							tcoordinator    += ', ' + self.user_whitelist[tid].name
-							tcoordinator_em += ', ' + self.user_whitelist[tid].email
+						# if user is in list but not on Moodle, it may not be in stafflist yet
+						if (pid in self.user_stafflist):
+							tcoordinator    += ', ' + self.user_stafflist[tid].name
+							tcoordinator_em += ', ' + self.user_stafflist[tid].email
 
 							if (index == 0):
 								tcoordinator    = tcoordinator.replace('-, ','')
@@ -842,8 +842,8 @@ class TeamsUpdater:
 					instructors = [] 
 					
 					for iid in clas['instructors']:
-						if (iid in self.user_whitelist):
-							instructors.append(self.user_whitelist[iid].name)
+						if (iid in self.user_stafflist):
+							instructors.append(self.user_stafflist[iid].name)
 
 					f.write(f'\n{stream},"{clas["name"]}",{clas["class_id"]},"{clas["description"]}","{", ".join(instructors)}","{", ".join(clas["instructors"])}"')
 
@@ -986,9 +986,9 @@ class TeamsUpdater:
 			#   if so, we'd need to do a lookup (f.somename -> z1234567) as sending commands and
 			#   everything else still relies on user IDs being submitted
 			if (not re.match('^z[\d]{7}$', userid)):
-				# try whitelist first
-				for uw in self.user_whitelist:
-					if (self.user_whitelist[uw]['email'].replace('@ad.unsw.edu.au','') == userid):
+				# try stafflist first
+				for uw in self.user_stafflist:
+					if (self.user_stafflist[uw]['email'].replace('@ad.unsw.edu.au','') == userid):
 						userid = uw
 						break
 				# then try the regular userlist
@@ -1336,13 +1336,13 @@ class TeamsUpdater:
 			channel_user_list = self.get_channel_user_list(team_id, channel_name, role)
 
 		# check current teams list against desired list
-		#	remove any not on desired list (but check against whitelist, those are save from deletion)
+		#	remove any not on desired list (but check against stafflist, those are save from deletion)
 		for user_in_teams_list in channel_user_list:
 			# skip the uni-added service accounts
 			if (user_in_teams_list in self.exclusion_ids): 
 				continue
 
-			if (user_in_teams_list not in desired_user_list and user_in_teams_list not in self.user_whitelist):
+			if (user_in_teams_list not in desired_user_list and user_in_teams_list not in self.user_stafflist):
 				if (remove_allowed):
 					# no role is indicated, so removal should remove the user rather than demote them from owner to member
 					response = self.remove_user_from_channel(team_id, channel_name, channel_user_list[user_in_teams_list])
@@ -1448,7 +1448,7 @@ class TeamsUpdater:
 		owners = self.ensure_dict(existing_owners)
 
 		# find by groupname in user list
-		owners_in_user_list = self.find_users('group', f'Staff {stream_name}', self.user_whitelist, return_type='dict')
+		owners_in_user_list = self.find_users('group', f'Staff {stream_name}', self.user_stafflist, return_type='dict')
 
 		for ol in owners_in_user_list:
 			if (ol not in owners):
@@ -1457,8 +1457,8 @@ class TeamsUpdater:
 		# use stream data to fill in gaps (particularly handy if people are missing from userlist)
 		for co in stream_data['coordinators']:
 			if (co not in owners):
-				if (co in self.user_whitelist):
-					owners[co] = self.user_whitelist[co]
+				if (co in self.user_stafflist):
+					owners[co] = self.user_stafflist[co]
 				elif (co in self.user_list):
 					owners[co] = self.user_list[co]
 				else:
@@ -1468,8 +1468,8 @@ class TeamsUpdater:
 
 		for oo in stream_data['other_owners']:
 			if (oo not in owners):
-				if (oo in self.user_whitelist):
-					owners[oo] = self.user_whitelist[oo]
+				if (oo in self.user_stafflist):
+					owners[oo] = self.user_stafflist[oo]
 				else:
 					# add a dummy user
 					o = User(oo, '~~unknown~~', [], [], [], '', True)
@@ -1478,8 +1478,8 @@ class TeamsUpdater:
 		for clas in stream_data['classes']:
 			for demonstrator_id in clas['instructors']:
 				if (demonstrator_id not in owners):
-					if (demonstrator_id in self.user_whitelist):
-						owners[demonstrator_id] =self.user_whitelist[demonstrator_id]
+					if (demonstrator_id in self.user_stafflist):
+						owners[demonstrator_id] =self.user_stafflist[demonstrator_id]
 					else:
 						# add a dummy user
 						d = User(demonstrator_id, '~~unknown~~', [], [], [], '', True)
@@ -1533,7 +1533,7 @@ class TeamsUpdater:
 
 		# ---- find stream owners ----
 		# TODO generalise/remove DN-specific operations
-		dnext_owners  = self.find_users('group', f'Staff Design Next', self.user_whitelist)
+		dnext_owners  = self.find_users('group', f'Staff Design Next', self.user_stafflist)
 		stream_owners = []
 		# initially, we may exclude staff to give time for early setup
 		if (include_staff):
@@ -2351,7 +2351,7 @@ if __name__ == '__main__':
 		my_path = mu.get_users_csv()
 
 	# basic operation by default
-	with TeamsUpdater(my_path, my_user_whitelist, username=login.username, password=login.password) as tu:
+	with TeamsUpdater(my_path, my_user_stafflist, username=login.username, password=login.password) as tu:
 		# import data first - later steps build on this
 		tu.import_user_list()
 		
