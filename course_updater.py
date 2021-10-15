@@ -2304,8 +2304,7 @@ class LMUpdater:
 
 	def login (self, username, password):
 		"""
-		Logs in to single-sign on for myUNSW (thus with Office 365 credentials)
-		usually doesn't fail, so that's quite nice
+		Logs in to myUNSW
 		"""
 		print('INFO: Logging in to Learning Management on myUNSW...')
 
@@ -2372,6 +2371,35 @@ class LMUpdater:
 		# set their role here, or let it be set in step 2 if we loop there?
 
 		# when done, save and submit
+
+	def get_class_roster (self, term, course_code):
+		#visit('https://my.unsw.edu.au/academic/roster/reset.xml')
+		
+		# select right term
+		#select.form-control name="term"
+		#  optons value="5219" text "Term 3 2021"
+
+		# pick right course
+		#3rd table > tbody
+		# each tr is one course
+		#1st td is course_code
+		#if (td_els.first.text == course_code):
+		#	td_els.last.input_el.click()
+		
+		# move to next page, give time to settle
+		time.sleep(10)
+
+		# td.formBody
+		# 2nd table element
+		# get tbody
+		# 1st tr > list of td.tableHeading text is column names
+		# remaining trs are data
+
+		# export to csv file
+		# needs predicatable filename
+
+		# TODO
+		# if available, use this info in import_user in TeamsUpdater
 		
 
 
