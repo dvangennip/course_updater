@@ -757,12 +757,10 @@ class TeamsUpdater:
 								pmentor_em = mu.email
 
 					# find project team
-					if (g.lower().find('team') != -1):
-						pteam = g.replace('Project ','')
+					if ((g.lower().find('team') != -1 or g.lower().find('group') != -1) and g.lower().find('stream') == -1):
+						pteam = g.replace('Project ','').replace('Student Teams - ','')
 
-					if (g.lower().find('group') != -1):
-						pteam = g
-
+					# extract tech stream data
 					if (tech_stream_list is not None):
 						if (g.find('Technical Stream Group - ') != -1):
 							tech_stream = g.replace('Technical Stream Group - ','').replace(' (OnCampus)','').replace(' (Online)','')
