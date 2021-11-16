@@ -66,7 +66,7 @@ class LoginData:
 	to store passwords in any clear text file.
 	"""
 	def __init__ (self, username=None, password=None):
-		self.app_id = 'PY_TEAMS_UPDATER'
+		self.app_id = 'PY_COURSE_UPDATER'
 
 		self.username = username
 		if (self.username is None):
@@ -2288,7 +2288,7 @@ class MoodleUpdater:
 				for grade in sub['grades']:
 					f.write(f'\n"{sub["name"]}",-,{sub["submission"]},{grade["grade"]},"{grade["marker"]}",-')
 
-		self.logger.info(f'\nExported workshop grades for {assessment_id} to {output_path}')
+		self.logger.info(f'Exported workshop grades for {assessment_id} to {output_path}')
 
 
 class LMUpdater:
