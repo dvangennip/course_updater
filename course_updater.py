@@ -757,7 +757,7 @@ class TeamsUpdater:
 								pmentor_em = mu.email
 
 					# find project team
-					if ((g.lower().find('team') != -1 or g.lower().find('group') != -1) and g.lower().find('stream') == -1):
+					if (g.lower().find('team') != -1 and g.lower().find('stream') == -1):
 						pteam = g.replace('Project ','').replace('Student Teams - ','')
 
 					# extract tech stream data
