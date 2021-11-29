@@ -2,7 +2,7 @@
 
 #####
 # script requires python version 3.7+, powershell 7+, and the PS Teams module to be installed
-# only tested on macOS 10.15
+# only tested on macOS 10.15+
 #
 # generally, this script is as resilient as a toddler with icecream in their hand
 # it will drop and create a scene at some stage...
@@ -579,7 +579,9 @@ class TeamsUpdater:
 									if (grouping not in user_groupings):
 										user_groupings.append(grouping)
 				except KeyError:
-					pass  # number of groups shown in Moodle export varies depending on number of groups in use
+					# number of groups shown in Moodle export varies depending on number of groups in use
+					# so we attempted to range over a large number and fail at some point -> expected, so we can ignore it
+					pass
 
 				# create User class from compiled info
 				new_user = User(
