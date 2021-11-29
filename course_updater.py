@@ -32,13 +32,19 @@ class User:
 	"""
 	Class that holds user data
 	"""
-	id       : str
-	name     : str
-	class_ids: []
-	groups   : []
-	groupings: []
-	email    : str  = ''
-	owner    : bool = False  # 'Member'|'Owner'
+	id           : str
+	name         : str
+	class_ids    : []
+	groups       : []
+	groupings    : []
+	email        : str  = ''
+	owner        : bool = False  # 'Member'|'Owner'
+	project      : str  = ''     # currently unused
+	team         : str  = ''     # currently unused
+	pcoordinator : []            # currently unused
+	pmentor      : []            # currently unused
+	tcoordinator : []            # currently unused
+	tmentor      : []            # currently unused
 
 	def __getitem__ (self, key):
 		return getattr(self, key)
