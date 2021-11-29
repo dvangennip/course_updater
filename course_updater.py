@@ -625,7 +625,7 @@ class TeamsUpdater:
 		count_total = count_students + count_instructors + count_unknown
 		self.logger.log(f'Imported data on {count_total} users (students: {count_students}, instructors: {count_instructors}, unknown: {count_unknown}).\n\n')
 
-	def export_student_list (self, project_list, tech_stream_list=None, replace_terms=None):
+	def export_student_list (self, coordinators, project_list, tech_stream_list=None, replace_terms=None):
 		""" Exports a list of students with project (and optional tech stream) information """
 
 		# assume course code is first thing in path, for example: engg1000-title-2021-t1.csv
@@ -655,11 +655,9 @@ class TeamsUpdater:
 					continue
 
 				# setup variables we'll fill in further down
-
-				# TODO generalise this info
-				ccoordinator    = 'Ilpo Koskinen, Nick Gilmore, Domenique van Gennip'
-				ccoordinator_id = 'z3526743,z3418878,z3530763'
-				ccoordinator_em = 'designnext@unsw.edu.au'
+				ccoordinator    = '-'
+				ccoordinator_id = '-'
+				ccoordinator_em = '-'
 
 				project         = '-'
 				pcoordinator    = '-'
@@ -680,6 +678,18 @@ class TeamsUpdater:
 				tmentor         = '-'
 				tmentor_id      = '-'
 				tmentor_em      = '-'
+
+				# add main coordinator info
+				for index, c in enumerate(coordinators):
+					if c in self.user_stafflist:
+						if (index == 0):
+							ccoordinator    = self.user_stafflist[c].name
+							ccoordinator_id = c
+							ccoordinator_em = self.user_stafflist[c].email
+						else:
+							ccoordinator    += f',{self.user_stafflist[c].name}'
+							ccoordinator_id += f',{c}'
+							ccoordinator_em += f',{self.user_stafflist[c].email}'
 
 				# loop over all groups to extract useful info
 				for g in s.groups:
