@@ -22,6 +22,7 @@ A script library to automate updating MS Teams based on Moodle input
 - Teams module currently returns nice.name@domain or zID@domain for users, randomly it seems, making identification harder as it requires a lookup against known emails to get zIDs.
 
 ## TO DO
+- Mask password in plain text terminal output on ConnectTeams login step
 - Perform some of the parsing into useful variables in TU.export_student_list already in TU.import. This will make those variables available for filtering/searching. Example variables:
 	- project
 	- team

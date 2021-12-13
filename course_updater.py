@@ -103,6 +103,12 @@ class LoginData:
 
 
 class Logger:
+	"""
+	Class for a logger object that appends logs to a text file.
+	Useful to track what is happening.
+	Comes with colour coding and several log levels (info, confirm, debug, warning, error),
+	although it currently just outputs all levels to the logfile.
+	"""
 	def __init__ (self):
 		# helper library for adding colours to output
 		colorama.init()
@@ -171,20 +177,6 @@ class Notifier:
 
 
 # -----------------------------------------------------------------------------
-# default input variables (as examples only here)
-
-""" path to Moodle-exported CSV file (default given here, override with a suitable path) """
-my_path = 'desn2000-engineering-design---professional-practice---2020-t3.csv'
-
-
-"""
-have a stafflist of users not to be removed from channels (demonstrators, etc)
-these users typically will not feature in Moodle-based ClassID lists
-this list is also expanded with any staff found in a Moodle user file
-"""
-my_user_stafflist = []
-
-# -----------------------------------------------------------------------------
 
 
 class PowerShellWrapper:
@@ -195,9 +187,10 @@ class PowerShellWrapper:
 	and now you have to tame powershell somehow, making you wonder if simply
 	learning powershell in the first place wouldn't have been a better bet...
 	
+	enter this wrapper class... squarely aimed at using the same shell for everything.
 	handles powershell commands in the background, works kind of like the
-	`pexpect` library, only returning when it encounters the reappearing prompt
-	or another string in the output that we want to stop at.
+	`pexpect` library, listening and returning only when it encounters the
+	reappearing prompt or another string in the output that we want to stop at.
 	
 	very simple, very likely not to work with most edge cases.
 	"""
@@ -449,7 +442,7 @@ class PowerShellWrapper:
 
 class TeamsUpdater:
 	"""
-	Wrapper around powershell teams commands, with additional logic to keep teams and channels in sync with an external list.
+	Wrapper around powershell MicrosoftTeams module commands, with additional logic to keep teams and channels in sync with an external list.
 	"""
 	def __init__ (self, path=None, stafflist={}, process=None, username=None, password=None, logger=None, prevent_self_removal=True):
 		if (logger == None):
@@ -539,21 +532,21 @@ class TeamsUpdater:
 		"""
 		Imports a user list csv file that was exported from Moodle
 		"""
-		self.logger.log(f'Importing data from: {self.data_path}')
+		self.logger.info(f'Importing data from: {self.data_path}')
 
 		count_total       = 0
 		count_instructors = 0
 		count_students    = 0
 		count_unknown     = 0
 
-		groups_dict       = {}
+		groups_dict       = {}  # example: {'9383': ['Students Grouping - Project X','Students Grouping (All)']}
 
 		# before importing user data, get grouping data ready for later merging
 		try:
 			with open(self.data_path.replace('.csv', '_groupings.json'), 'r') as fg:
 				groups_dict = json.loads( fg.read() )
 		except FileNotFoundError as e:
-			self.logger.log(e, 'ERROR')
+			self.logger.error(e)
 		
 		# open and read CSV file - assumes existence of columns named Username (for zID), First Name, Surname, and a few more
 		with open(self.data_path) as fs:
@@ -600,9 +593,9 @@ class TeamsUpdater:
 				)
 
 				# users without classes assigned get added to the stafflist
-				# in Moodle, more or less by definition, no ClassID -> staff
+				# in Moodle, no ClassID means the user is staff or a student halfway through unenrolment
 				if (user['Class ID'] == '-'):
-					# do another check to make sure this user is actually staff
+					# do a check to make sure this user is actually staff
 					#   adding a user to this group requires manual assignment in Moodle
 					#   as an alternative, you can add them into the user stafflist passed in at the start
 					if (new_user.in_group('Staff (DO NOT REMOVE)')):
@@ -837,7 +830,7 @@ class TeamsUpdater:
 			self.logger.log(f'Exported student list to {output_path}\n\n')
 
 	def export_class_list (self, project_list):
-		""" Exports a list of classes with demonstrator information """
+		""" Exports a list of classes with instructor information """
 
 		# assume course code is first thing in path, for example: engg1000-title---2021-t1.csv
 		course = self.data_path[:self.data_path.find('-')]
@@ -881,7 +874,7 @@ class TeamsUpdater:
 		
 		return response
 
-	def create_team (self, name, description='', visibility='Private', owners=[], template=None, info=''):
+	def create_team (self, name, description='', visibility='Private', template=None, info=''):
 		"""
 		Create a new Team. Connected account will become an owner automatically.
 
@@ -910,7 +903,7 @@ class TeamsUpdater:
 		else:
 			self.logger.log(f'Created {visibility.lower()} team {name} ({response_group_id}) ({info=})')
 
-			self.add_users_to_team(response_group_id, owners, 'Owner')
+			return response_group_id
 
 	def set_team (self, team_id, new_name=None, description=None):
 		""" adjust name and description of an existing team """
@@ -1038,12 +1031,12 @@ class TeamsUpdater:
 		return user_list 
 
 	def remove_users_from_team (self, team_id, users=[User], role='Member'):
-		""" coonvenience function to remove a list of users in one go """
+		""" Convenience function to remove a list of users in one go """
 		for u in users:
 			self.remove_user_from_team(team_id, u, role)
 
 	def remove_user_from_team (self, team_id, user=User, role='Member'):
-		""" removing a user as role='Owner' keeps them as a team member """
+		""" Removing a user as role='Owner' keeps them as a team member """
 		self.ensure_connected()
 
 		# skip the uni-added service accounts
@@ -1068,7 +1061,7 @@ class TeamsUpdater:
 		return success
 
 	def add_users_to_team (self, team_id, users=[User], role='Member'):
-		""" coonvenience function to add a list of users in one go """
+		""" Convenience function to add a list of users in one go """
 		for user in users:
 			self.add_user_to_team(team_id, user, role)
 
@@ -1096,7 +1089,7 @@ class TeamsUpdater:
 		return success
 
 	def update_team (self, team_id, desired_user_list, team_user_list=None, role='All', remove_allowed=True):
-		""" add/remove users to match the `desired_user_list` """
+		""" Sync team membership by comparing `desired_user_list` with `channel_user_list` (latter will be fetched if not specified) """
 		self.ensure_connected()
 
 		count_removed = 0
@@ -1159,7 +1152,7 @@ class TeamsUpdater:
 
 		all_channels = {}
 
-		# single channel isn't given as a list, just the channel dict, so wrap in list
+		# single channel response isn't given as a list, just the channel dict is returned, so wrap in list
 		if (isinstance(response, dict)):
 			response = [response]
 
@@ -1343,6 +1336,7 @@ class TeamsUpdater:
 		return success
 
 	def update_channel (self, team_id, channel_name, desired_user_list, channel_user_list=None, role='All', remove_allowed=True):
+		""" Sync channel membership by comparing `desired_user_list` with `channel_user_list` (latter will be fetched if not specified) """
 		self.logger.info(f"Updating channel {channel_name} ({len(desired_user_list)} enrolments)")
 
 		count_removed = 0
@@ -1532,7 +1526,7 @@ class TeamsUpdater:
 					self.create_channel(stream_data['team_id'], channel_name, ctype, description=clas['description'])
 
 	def convenience_sync_class_channels (self, stream_data, owners, sync_staff=True, sync_students=True, remove_staff_allowed=True, remove_students_allowed=True):
-		""" Synchronise stream channel membership against a given user list """
+		""" Synchronise stream class channel membership against a given user list """
 		for clas in stream_data['classes']:
 			# only need to sync private channels as those have a memberlist separate from main team
 			if (clas['channel'] and clas['channel'] == 'private'):
@@ -1550,8 +1544,9 @@ class TeamsUpdater:
 
 	def convenience_sync_channels (self, stream_data, sync_staff=True, sync_students=True, remove_staff_allowed=True, remove_students_allowed=True):
 		"""
-		TODO doesn't respect input parameters very well...
-		     could be more generic
+		Convenience method to sync channels within a stream
+		TODO - doesn't respect input parameters very well...
+		     - could be more generic for broader use
 		"""
 		for channel in stream_data['channels']:
 			if (channel['channel'] == 'private'):
@@ -1610,15 +1605,15 @@ class TeamsUpdater:
 		team_info         = self.get_team(stream_data['team_id'], get_channels=True)
 
 		# ---- set appearance ----
-		# team_name    = f'{my_course_code} {stream} - {my_year} T{my_term}'
+		team_name    = f'{my_course_code} {stream} - {my_year} T{my_term}'
 		description  = f'Teaching Team for {team_name}'
-		team_picture = None  #f'../Logos/{my_course_code}-{stream.lower()}.png'
 
 		if (team_info['DisplayName'] != team_name or team_info['Description'] != description):
 			self.set_team(stream_data['team_id'], new_name=team_name, description=description)
 
 		# set Team picture
 		if (set_team_picture):
+			# TODO remove hardcoded path
 			self.set_team_picture(stream_data['team_id'], f'../Logos/{my_course_code}-{stream.lower()}.png')
 
 		# ---- create channels ----
@@ -1729,7 +1724,7 @@ class MoodleUpdater:
 	"""
 	Class that enables a small number of repetitive operations on Moodle
 
-	Course id is unique, look at the url on Moodle to find the id for the course
+	`course_id` is unique, look at the url on Moodle to find the id for the course
 	"""
 	def __init__ (self, course_id, username=None, password=None, browser=None, logger=None):
 		self.course_id = course_id
@@ -1773,7 +1768,8 @@ class MoodleUpdater:
 		Downloads the user list as csv export from Moodle
 
 		Note that Moodle sets the filename and this script's browser instance can't control that.
-		It also doesn't indicate when a download may have completed, so this requires manual confirmation.
+		It also doesn't indicate when a download may have completed, so this requires manual confirmation,
+		unless `auto_confirm` is set to `True` when it does a rudimentary file check and moves on.
 		"""
 		self.logger.info('Getting user data CSV file from Moodle...')
 	
@@ -1840,7 +1836,11 @@ class MoodleUpdater:
 				return filename
 
 	def get_grouping_data (self, output_path):
-		""" extracts grouping info and exports to csv """
+		"""
+		Extracts grouping info and exports to csv.
+		
+		On importing user data, this data can be joined in to get grouping membership for users.
+		"""
 		self.logger.info('Getting grouping data from Moodle...')
 		
 		# go to grouping overview page
@@ -1930,7 +1930,13 @@ class MoodleUpdater:
 		# shutil.move(os.path.join(dirpath,filename),newfilename)
 
 	def auto_create_groups (self, group_by_type='classid', grouping_name=None):
-		""" Automates the groups auto-creation interface on Moodle """
+		"""
+		Automates the groups auto-creation interface on Moodle.
+		Useful if auto-creating groups based on changing enrolment data; this can make sure data is
+		refreshed and accurate before doing other things.
+
+		It assumes this is run manually at least once so we're certain the `grouping_name`, if set, indeed exists.
+		"""
 		self.logger.info(f'Auto-creating groups by {group_by_type}...')
 		
 		# go straight to the auto-create groups page for the course
@@ -1961,7 +1967,7 @@ class MoodleUpdater:
 
 	def add_gradebook_category (self, category_info={}):
 		"""
-		Ruin the gradebook by running this experimental method
+		Ruin the gradebook by running this experimental method. If lucky, it adds a category.
 
 		category_info is a dict {} with the following parameters:
 		  name            : (required) String of text
@@ -2188,6 +2194,7 @@ class MoodleUpdater:
 			# first check if section exists
 			section_title_els = section.find_by_css('a.quickeditlink')
 			
+			# if found, continue with deleting it
 			if (section_title_els.first.text == section_name):
 				# first, toggle the edit popup to be visible, then click the hide button within
 				edit_toggle_buttons = section.find_by_css('a.dropdown-toggle')
@@ -2205,7 +2212,12 @@ class MoodleUpdater:
 		self.logger.info(f'Skipped section named {section_name}: does not exist.')
 
 	def export_default_groups_list (self, project_list, tech_stream_list=None, replace_terms={}):
-		""" Generates a csv file for importing into Moodle with basic group and grouping setup """
+		"""
+		Generates a csv file for importing into Moodle with basic group and grouping setup
+		
+		This code is quite specific to courses that run multiple internal projects and/or streams
+		and likely not useful for simpler courses.
+		"""
 		
 		output_path = self.csv_file.replace('.csv', '-groups.csv')
 
@@ -2280,6 +2292,7 @@ class MoodleUpdater:
 			# if a user receives multiple grades, those are put into subsequent rows
 			#   those additional rows miss the participant and submission data, and only carry grade data
 			#   so if the above try block fails, we got the second type and just add the parsed grade to the last item in data
+			# TODO while this bit works, it's painfully slow...
 			receivedgrade = row.find_by_css('td.receivedgrade')  # example: '- (-)<Jimmy Liu'
 
 			if (len(receivedgrade) > 0 and receivedgrade.text != '-'):  # <- no markers assigned
@@ -2312,6 +2325,8 @@ class MoodleUpdater:
 class LMUpdater:
 	"""
 	Class that enables a small number of repetitive operations on the Learning Management system via myUNSW
+
+	Not functional at the moment -> more an elaborate set of notes for future work if I feel it's worth the time.
 	"""
 	def __init__ (self, course_name, course_term, username, password):
 		self.course_name = course_name
@@ -2391,6 +2406,11 @@ class LMUpdater:
 		# when done, save and submit
 
 	def get_class_roster (self, term, course_code):
+		"""
+		UNFINISHED. Downloads the class roster for the course.
+		Data may be useful in addition to what Moodle provides as it contains degree program.
+		"""
+
 		#visit('https://my.unsw.edu.au/academic/roster/reset.xml')
 		
 		# select right term
@@ -2418,7 +2438,6 @@ class LMUpdater:
 
 		# TODO
 		# if available, use this info in import_user in TeamsUpdater
-		
 
 
 # -----------------------------------------------------------------------------
@@ -2429,18 +2448,24 @@ if __name__ == '__main__':
 	This is a default use case
 	Best practice is to create a new script file, import this script's classes there, and make it work for your use case.
 	"""
+
+	# path to Moodle-exported CSV file (default given here, override with a suitable path)
+	my_path = 'desn2000-engineering-design---professional-practice---2020-t3.csv'
+	
 	# get login info
 	login = LoginData()
 
 	# get data from Moodle
 	moodle_course_id = 54605
 
+	# do stuff on Moodle
 	with MoodleUpdater(moodle_course_id, login.username, login.password) as mu:
 		my_path = mu.get_users_csv()
 
 	# basic operation by default
-	with TeamsUpdater(my_path, my_user_stafflist, username=login.username, password=login.password) as tu:
+	with TeamsUpdater(my_path, username=login.username, password=login.password) as tu:
 		# import data first - later steps build on this
 		tu.import_user_list()
 		
 		# do other things
+		# ...
