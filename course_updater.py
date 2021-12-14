@@ -1562,18 +1562,17 @@ class TeamsUpdater:
 						# do actual update
 						self.update_channel(stream_data['team_id'], channel['name'], users, role=role, remove_allowed=remove_allowed)
 
-	def convenience_course_stream_update (self, team_name, stream_name, stream_data, include_staff=True, sync_staff=True, sync_students=True, remove_staff_allowed=True, remove_students_allowed=True, set_team_picture=False):
+	def convenience_course_stream_update (self, team_name, stream_name, stream_data, course_owners='', include_staff=True, sync_staff=True, sync_students=True, remove_staff_allowed=True, remove_students_allowed=True, set_team_picture=False):
 		""" Default stream update method, suitable for most courses """
 
 		# ---- find stream owners ----
-		# TODO generalise/remove DN-specific operations
-		dnext_owners  = self.find_users('group', f'Staff Design Next', self.user_stafflist)
+		course_owners  = self.find_users('group', f'Staff {course_owners}', self.user_stafflist)
 		stream_owners = []
 		# initially, we may exclude staff to give time for early setup
 		if (include_staff):
-			stream_owners = self.convenience_get_stream_owners(stream_name, stream_data, dnext_owners)
+			stream_owners = self.convenience_get_stream_owners(stream_name, stream_data, course_owners)
 		else:
-			stream_owners = dnext_owners
+			stream_owners = course_owners
 		# store for later use
 		stream_data['stream_owners'] = stream_owners
 
