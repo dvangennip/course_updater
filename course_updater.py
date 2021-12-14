@@ -745,12 +745,9 @@ class TeamsUpdater:
 		count_total = count_students + count_instructors + count_unknown
 		self.logger.log(f'Imported data on {count_total} users (students: {count_students}, instructors: {count_instructors}, unknown: {count_unknown}).\n\n')
 
-	def export_student_list (self, coordinators, project_list, tech_stream_list=None, replace_terms=None):
-		""" Exports a list of students with project (and optional tech stream) information """
+	def export_student_list (self, replace_terms=None):
+		""" Exports a list of students using User class information """
 
-		# assume course code is first thing in path, for example: engg1000-title-2021-t1.csv
-		course = self.data_path[:self.data_path.find('-')]
-		
 		output_path = self.data_path.replace('.csv', '-students.csv')
 
 		with open(output_path, 'w') as f:
@@ -765,8 +762,29 @@ class TeamsUpdater:
 				if (replace_terms['Tech stream']):
 					header = header.replace('Tech stream', replace_terms['Tech stream'])
 			f.write(header)
+
+			""" internal parse function to go from user_id to name and email """
+			def _parse_ids_to_names_emails (id_list):
+				ids    = '-'
+				names  = '-'
+				emails = '-'
+
+				if (len(id_list) > 0):
+					ids = ','.join(id_list)
+					names  = []
+					emails = []
+
+					for index, c in enumerate(id_list):
+						if c in self.user_stafflist:
+							names.append(  self.user_stafflist[c].name  )
+							emails.append( self.user_stafflist[c].email )
+						else:
+							names.append(  'Unknown staff'    )
+							emails.append( f'{c}@unsw.edu.au' )
+
+				return ids, ', '.join(names), ', '.join(emails)
 			
-			# iterate over all students in the list
+			# iterate over all students
 			for sid in self.user_list:
 				s = self.user_list[sid]
 
@@ -774,185 +792,15 @@ class TeamsUpdater:
 				if (len(s.class_ids) == 0):
 					continue
 
-				# setup variables we'll fill in further down
-				ccoordinator    = '-'
-				ccoordinator_id = '-'
-				ccoordinator_em = '-'
+				# fill in staff info
+				ccoordinator_id, ccoordinator, ccoordinator_em = _parse_ids_to_names_emails(s.course_coordinators)
+				pcoordinator_id, pcoordinator, pcoordinator_em = _parse_ids_to_names_emails(s.project_coordinators)
+				pmentor_id, pmentor, pmentor_em                = _parse_ids_to_names_emails(s.project_mentors)
+				tcoordinator_id, tcoordinator, tcoordinator_em = _parse_ids_to_names_emails(s.tech_stream_coordinators)
+				tmentor_id, tmentor, tmentor_em                = _parse_ids_to_names_emails(s.tech_stream_mentors)
 
-				project         = '-'
-				pcoordinator    = '-'
-				pcoordinator_id = '-'
-				pcoordinator_em = '-'
-
-				pclass          = '-'
-				pteam           = '-'
-				pmentor         = '-'
-				pmentor_id      = '-'
-				pmentor_em      = '-'
-
-				tech_stream     = '-'
-				tcoordinator    = '-'
-				tcoordinator_id = '-'
-				tcoordinator_em = '-'
-
-				tmentor         = '-'
-				tmentor_id      = '-'
-				tmentor_em      = '-'
-
-				# add main coordinator info
-				for index, c in enumerate(coordinators):
-					if c in self.user_stafflist:
-						if (index == 0):
-							ccoordinator    = self.user_stafflist[c].name
-							ccoordinator_id = c
-							ccoordinator_em = self.user_stafflist[c].email
-						else:
-							ccoordinator    += f',{self.user_stafflist[c].name}'
-							ccoordinator_id += f',{c}'
-							ccoordinator_em += f',{self.user_stafflist[c].email}'
-
-				# loop over all groups to extract useful info
-				for g in s.groups:
-
-					# --- class ID-based matching below (fits most courses)
-					
-					if ( g.isdigit() ):
-						# find the relevant project
-						for pkey in project_list:
-							p = project_list[pkey]
-							
-							# main_class_id may not exists for courses where it's irrelevant
-							if ('main_class_id' in p and p['main_class_id'] == int(g)):
-								project = pkey
-								# if matching project is found, no need to continue the for loop trying other projects
-								break
-							elif ('classes' in p):
-								for cl in p['classes']:
-									if (cl['class_id'] == int(g)):
-										# lectures are not included as classes
-										if (cl['name'].find('LE') != -1):
-											pass
-										# labs are handled separately from regular classes
-										elif (cl['name'].find('LAB') != -1):
-											tech_stream += f", {cl['name']}_{cl['class_id']}  [ {cl['description']} ]"
-											
-											# add demonstrator info
-											for did in cl['instructors']:
-												# ensure there is indeed data on a listed demonstrator
-												if (did in self.user_stafflist):
-													tmentor    += ', ' + self.user_stafflist[did].name
-													tmentor_id += ', ' + did
-													tmentor_em += ', ' + self.user_stafflist[did].email
-											
-											tech_stream = tech_stream.replace(    '-, ', '')
-											tmentor     = tmentor.replace(   '-, ', '')
-											tmentor_id  = tmentor_id.replace('-, ', '')
-											tmentor_em  = tmentor_em.replace('-, ', '')
-										# regular classes
-										else:
-											pclass += f", {cl['name']}_{cl['class_id']}  [ {cl['description']} ]"
-											
-											# add demonstrator info
-											for did in cl['instructors']:
-												# ensure there is indeed data on a listed demonstrator
-												if (did in self.user_stafflist):
-													pmentor    += ', ' + self.user_stafflist[did].name
-													pmentor_id += ', ' + did
-													pmentor_em += ', ' + self.user_stafflist[did].email
-											
-											pclass     = pclass.replace(    '-, ', '')
-											pmentor    = pmentor.replace(   '-, ', '')
-											pmentor_id = pmentor_id.replace('-, ', '')
-											pmentor_em = pmentor_em.replace('-, ', '')
-
-					# --- group name based matching below (fits ENGG1000 best)
-
-					# TODO generalise to allow other terms than 'Project'
-					if (g.find('Project Group - ') != -1):
-						project = re.sub(
-							r'Project Group - (?P<project>.+?)',  # original   # include \(.+?\) at end to catch (Online|On Campus)
-							r'\g<project>',  # replacement
-							g  # source string
-						)
-
-					# TODO generalise term 'Mentor' or allow 'Demonstrator' as well
-					if (g.find('Project') != -1 and g.find('Mentor') != -1):
-						pmentor = re.sub(
-							r'Project (?P<project>.+?) (- ){0,1}Mentor (?P<mentor>.+?)',
-							r'\g<mentor>',
-							g
-						)
-						# funky whitespaces can throw us further down
-						pmentor = pmentor.replace(' ', ' ')  # these two 'whitespaces' are not the same...
-
-						# find ID based on name
-						for su in self.user_stafflist:
-							mu = self.user_stafflist[su]
-
-							# match against lower case to avoid minor spelling issues to cause mismatches
-							if (mu.name.lower() == pmentor.lower()):
-								pmentor_id = mu.id
-								pmentor_em = mu.email
-
-					# find project team
-					if (g.lower().find('team') != -1 and g.lower().find('stream') == -1):
-						pteam = g.replace('Project ','').replace('Student Teams - ','')
-
-					# extract tech stream data
-					if (tech_stream_list is not None):
-						if (g.find('Technical Stream Group - ') != -1):
-							tech_stream = g.replace('Technical Stream Group - ','').replace(' (OnCampus)','').replace(' (Online)','')
-
-						if (g.find('Technical Stream') != -1 and g.find('Mentor') != -1):
-							tmentor = re.sub(
-								r'Technical Stream (?P<stream>.+?) (- ){0,1}Mentor (?P<mentor>.+?)',
-								r'\g<mentor>',
-								g
-							)
-							# funky whitespaces can throw us further down
-							tmentor = tmentor.replace(' ', ' ')  # these two 'whitespaces' are not the same...
-
-							# find ID based on name
-							if (tmentor != '-'):
-								for su in self.user_stafflist:
-									mu = self.user_stafflist[su]
-
-									# match against lower case to avoid minor spelling issues to cause mismatches
-									if (mu.name.lower() == tmentor.lower()):
-										tmentor_id = mu.id
-										tmentor_em = mu.email
-				
-				# --- below we assume project and streams have been found
-				#     now, it's about filling in the details
-
-				if (project != '-'):
-					pcoordinator_id = project_list[project]['coordinators']
-					
-					for index, pid in enumerate(pcoordinator_id):
-						# if user is in list but not on Moodle, it may not be in stafflist yet
-						if (pid in self.user_stafflist):
-							pcoordinator    += ', ' + self.user_stafflist[pid].name
-							pcoordinator_em += ', ' + self.user_stafflist[pid].email
-
-							if (index == 0):
-								pcoordinator    = pcoordinator.replace('-, ','')
-								pcoordinator_em = pcoordinator_em.replace('-, ','')
-
-				if (tech_stream_list is not None and tech_stream != '-'):
-					tcoordinator_id = tech_stream_list[tech_stream]['coordinators']
-					
-					for index, tid in enumerate(tcoordinator_id):
-						# if user is in list but not on Moodle, it may not be in stafflist yet
-						if (pid in self.user_stafflist):
-							tcoordinator    += ', ' + self.user_stafflist[tid].name
-							tcoordinator_em += ', ' + self.user_stafflist[tid].email
-
-							if (index == 0):
-								tcoordinator    = tcoordinator.replace('-, ','')
-								tcoordinator_em = tcoordinator_em.replace('-, ','')
-
-				# --- finally, write output for this student
-				f.write(f'\n{s.id},{s.name},{s.email},"{",".join(map(str,s.class_ids))}",{course},"{ccoordinator}","{ccoordinator_id}","{ccoordinator_em}",{project},"{pcoordinator}","{", ".join(pcoordinator_id)}","{pcoordinator_em}","{pclass}","{pmentor}","{pmentor_id}","{pmentor_em}","{pteam}","{tech_stream}","{tcoordinator}","{", ".join(tcoordinator_id)}","{tcoordinator_em}","{tmentor}","{tmentor_id}","{tmentor_em}"')
+				# finally, write output for this student
+				f.write(f'\n{s.id},{s.name},{s.email},"{",".join(map(str,s.class_ids))}",{s.course_code},"{ccoordinator}","{ccoordinator_id}","{ccoordinator_em}",{s.project},"{pcoordinator}","{pcoordinator_id}","{pcoordinator_em}","{",".join(s.classes)}","{pmentor}","{pmentor_id}","{pmentor_em}","{s.project_team}","{s.tech_stream}","{tcoordinator}","{tcoordinator_id}","{tcoordinator_em}","{tmentor}","{tmentor_id}","{tmentor_em}"')
 
 			self.logger.log(f'Exported student list to {output_path}\n\n')
 
