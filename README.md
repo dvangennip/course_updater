@@ -13,8 +13,8 @@ A python library to automate updating MS Teams based on Moodle input
 	- Use on Windows may need some changes to filepaths, etc.
 
 ## Guide
-- course\_updater.py is best used as a library called from another script file
-- Rather than editing course\_updater.py, import its classes into your own script
+- `course_updater.py` is best used as a library called from another script file
+- Rather than editing `course_updater.py`, import its classes into your own script
 - Look at the example files for an idea
 
 ## Example script
