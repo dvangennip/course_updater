@@ -22,6 +22,7 @@ def import_user_data (path):
 			user = User(
 				row['Username'],
 				row['First name'] + ' ' + row['Surname'],
+				'unknown_course_code',
 				class_ids,
 				groups
 			)

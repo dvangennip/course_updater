@@ -1,5 +1,5 @@
 # course\_updater
-A script library to automate updating MS Teams based on Moodle input
+A python library to automate updating MS Teams based on Moodle input
 
 ## Requirements
 - Python 3.7+
@@ -18,6 +18,8 @@ A script library to automate updating MS Teams based on Moodle input
 - Look at the update\_example.py file for an idea
 
 ## Example script
+A simple demo example is shared below but look in the examples folder for more complete code you can adapt.
+
 ````python
 from course_updater import MoodleUpdater, TeamsUpdater
 
@@ -51,34 +53,33 @@ with TeamsUpdater(my_user_file, username, password) as tu:
 	tu.update_team(team_id, students, role='Member')
 ````
 
+## Other (semi-functional) utilities included
+- `enrolment_diff.py`: Compares enrolments between two Moodle user files.
+- `marker_extraction.py`: Exports student list with one marker chosen from a list for each student (if they had multiple mentors, and only one is required to mark).
+- `peer_marking_allocation.py`: Pseudo-code that could generate peer marking allocations based on some criteria.
+- `roster_check.py`: Very basic code to verify student's course stream enrolment against their degree plan.
+
 ## Known issues
 - headless state of Firefox/geckodriver crashes (on macOS, as of Sept 2021)
 - Teams module currently returns nice.name@domain or zID@domain for users, randomly it seems, making identification harder as it requires a lookup against known emails to get zIDs.
 
 ## TO DO
 - Mask password in plain text terminal output on ConnectTeams login step
-- Perform some of the parsing into useful variables in TU.export_student_list already in TU.import. This will make those variables available for filtering/searching. Example variables:
-	- project
-	- team
-	- lab/tech stream?
-	- demonstrators, etc, could be parsed as well
-- Make find_users more generic
+- Make `find_users` method more generic
 	- ability to search for any variable by its name (as User class vars may increase in the future)
 	- exact=true as method parameter rather than separate search type
 	- look into custom filter function for python object lists/dicts
 	- alternatively, because sql queries are powerful, it may be efficient to build a db on import
-- Publish as private repo on github
-	- Transfer these to do's to issues?
 - Add automatic ability to recognise Connect-MicrosoftTeams login account (zID) and add this to exclusion IDs to avoid accidental self-removal?
 	- alt idea: if this is actually desired, have a prompt to check and get approval -> add a current_user variable to check against
 - Error handling
 	- errors should go into the log
-	- data output is unpredictable with ConvertToJson enabled but can cause crashes, so need to catch this properly
-- Integrate user_stafflist into default users list
-	- Requires easy way to filter out staff
+	- data output is unpredictable with ConvertToJson enabled but can cause crashes, so need to catch this properly in all cases
+- Integrate `user_stafflist` into default `user_list`
+	- Requires easy way to filter out staff and students when desired
 - Allow searching by class id AND group(ing) data.
 	- a filter function might ideally take 2+ search terms
-	- current `find\_users` method could be chained to achieve multiple search terms in `x AND y` fashion, not `OR` or `ANY`.
+	- current `find_users` method could be chained to achieve multiple search terms in `x AND y` fashion, not `OR` or `ANY`.
 - Login procedure for some of the classes is the same so standardise, or make a base class for them
 	- MoodleBrowser may be a suitable candidate?
 - Split TeamsUpdater class into two separate classes:
