@@ -32,19 +32,23 @@ class User:
 	"""
 	Class that holds user data
 	"""
-	id           : str
-	name         : str
-	class_ids    : []
-	groups       : []
-	groupings    : []
-	email        : str  = ''
-	owner        : bool = False  # 'Member'|'Owner'
-	# project      : str  = ''     # currently unused
-	# team         : str  = ''     # currently unused
-	# pcoordinator : []            # currently unused
-	# pmentor      : []            # currently unused
-	# tcoordinator : []            # currently unused
-	# tmentor      : []            # currently unused
+	id                       : str
+	name                     : str
+	course_code              : str  = ''
+	class_ids                : list = field(default_factory=list)
+	groups                   : list = field(default_factory=list)
+	groupings                : list = field(default_factory=list)
+	email                    : str  = ''
+	owner                    : bool = False  # 'Member'|'Owner'
+	classes                  : list = field(default_factory=list)
+	project                  : str  = ''
+	project_team             : str  = ''
+	tech_stream              : str  = ''
+	course_coordinators      : list = field(default_factory=list)
+	project_coordinators     : list = field(default_factory=list)
+	project_mentors          : list = field(default_factory=list)
+	tech_stream_coordinators : list = field(default_factory=list)
+	tech_stream_mentors      : list = field(default_factory=list)
 
 	def __getitem__ (self, key):
 		return getattr(self, key)
@@ -1015,7 +1019,8 @@ class TeamsUpdater:
 
 			user_list[userid] = User(
 				userid,     # zID
-				d['Name'],  # name       
+				d['Name'],  # name    
+				'',         # unknown course code   
 				[],         # unknown class ids
 				[],         # unknown groups
 				[],         # unknown groupings
