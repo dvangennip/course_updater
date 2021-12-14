@@ -532,7 +532,7 @@ class TeamsUpdater:
 		if (self.process is not None and self.process_internal):
 			self.process.close()
 
-	def import_user_list (self):
+	def import_user_list (self, course_code, coordinators, project_list, tech_stream_list=None):
 		"""
 		Imports a user list csv file that was exported from Moodle
 		"""
@@ -544,6 +544,8 @@ class TeamsUpdater:
 		count_unknown     = 0
 
 		groups_dict       = {}  # example: {'9383': ['Students Grouping - Project X','Students Grouping (All)']}
+
+		# ----- STEP 1 - IMPORT DATA ----
 
 		# before importing user data, get grouping data ready for later merging
 		try:
@@ -590,6 +592,7 @@ class TeamsUpdater:
 				new_user = User(
 					user_id,
 					user['First name'] + ' ' + user['Surname'],
+					course_code,
 					class_ids,
 					user_groups,
 					user_groupings,
@@ -618,6 +621,126 @@ class TeamsUpdater:
 					self.user_list[user_id] = new_user
 
 					count_students += 1
+
+		# ----- STEP 2 - ADDITIONAL PARSING -----
+
+		# do additional parsing on users to extract useful data
+		for sid in self.user_list:
+			s = self.user_list[sid]
+
+			# avoid including staff (who have no class ids) and partially unenrolled students (also no class ids)
+			if (len(s.class_ids) == 0):
+				continue
+
+			# add main coordinator info
+			for index, c in enumerate(coordinators):
+				if c in self.user_stafflist:
+					s.course_coordinators.append(c)
+
+			# loop over all groups to extract useful info
+			for g in s.groups:
+
+				# --- class ID-based matching below (fits most courses)
+				
+				if ( g.isdigit() ):
+					# find the relevant project
+					for pkey in project_list:
+						p = project_list[pkey]
+						
+						# main_class_id may not exists for courses where it's irrelevant
+						if ('main_class_id' in p and p['main_class_id'] == int(g)):
+							s.project = pkey
+							# if matching project is found, no need to continue the for loop trying other projects
+							break
+						elif ('classes' in p):
+							for cl in p['classes']:
+								if (cl['class_id'] == int(g)):
+									# lectures are not included as classes
+									if (cl['name'].find('LE') != -1):
+										pass
+									# labs are handled separately from regular classes
+									elif (cl['name'].find('LAB') != -1):
+										s.tech_stream += f"{cl['name']}_{cl['class_id']}  [ {cl['description']} ]"
+										
+										# add demonstrator info
+										for did in cl['instructors']:
+											# ensure there is indeed data on a listed demonstrator
+											if (did in self.user_stafflist):
+												s.tech_stream_mentors.append(did)
+									# regular classes
+									else:
+										s.classes.append(f"{cl['name']}_{cl['class_id']}  [ {cl['description']} ]")
+										
+										# add demonstrator info
+										for did in cl['instructors']:
+											# ensure there is indeed data on a listed demonstrator
+											if (did in self.user_stafflist):
+												s.project_mentors.append(did)
+
+				# --- group name based matching below (fits ENGG1000 best)
+
+				# TODO generalise to allow other terms than 'Project'
+				if (g.find('Project Group - ') != -1):
+					s.project = re.sub(
+						r'Project Group - (?P<project>.+?)',  # original   # include \(.+?\) at end to catch (Online|On Campus)
+						r'\g<project>',  # replacement
+						g  # source string
+					)
+
+				# TODO generalise term 'Mentor' or allow 'Demonstrator' as well
+				if (g.find('Project') != -1 and g.find('Mentor') != -1):
+					pmentor = re.sub(
+						r'Project (?P<project>.+?) (- ){0,1}Mentor (?P<mentor>.+?)',
+						r'\g<mentor>',
+						g
+					)
+					# funky whitespaces can throw us further down
+					pmentor = pmentor.replace(' ', ' ')  # these two 'whitespaces' are not the same...
+
+					# find ID based on name
+					for su in self.user_stafflist:
+						mu = self.user_stafflist[su]
+
+						# match against lower case to avoid minor spelling issues to cause mismatches
+						if (mu.name.lower() == pmentor.lower()):
+							s.project_mentors.append(mu.id)
+
+				# extract tech stream data
+				if (tech_stream_list is not None):
+					if (g.find('Technical Stream Group - ') != -1):
+						s.tech_stream = g.replace('Technical Stream Group - ','').replace(' (OnCampus)','').replace(' (Online)','')
+
+					if (g.find('Technical Stream') != -1 and g.find('Mentor') != -1):
+						tmentor = re.sub(
+							r'Technical Stream (?P<stream>.+?) (- ){0,1}Mentor (?P<mentor>.+?)',
+							r'\g<mentor>',
+							g
+						)
+						# funky whitespaces can throw us further down
+						tmentor = tmentor.replace(' ', ' ')  # these two 'whitespaces' are not the same...
+
+						# find ID based on name
+						if (tmentor != '-'):
+							for su in self.user_stafflist:
+								mu = self.user_stafflist[su]
+
+								# match against lower case to avoid minor spelling issues to cause mismatches
+								if (mu.name.lower() == tmentor.lower()):
+									s.tech_stream_mentors.append(mu.id)
+
+				# --- common matching continues below
+				
+				# find project team
+				if (g.lower().find('team') != -1 and g.lower().find('stream') == -1):
+					s.project_team = g.replace('Project ','').replace('Student Teams - ','')
+			
+			# --- below we assume project and streams have been found
+
+			if (len(s.project) > 0):
+				s.project_coordinators = project_list[s.project]['coordinators']
+
+			if (tech_stream_list is not None and len(s.tech_stream) > 0):
+				s.tech_stream_coordinators = tech_stream_list[s.tech_stream]['coordinators']
 
 		count_total = count_students + count_instructors + count_unknown
 		self.logger.log(f'Imported data on {count_total} users (students: {count_students}, instructors: {count_instructors}, unknown: {count_unknown}).\n\n')
