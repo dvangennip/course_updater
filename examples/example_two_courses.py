@@ -55,7 +55,7 @@ d2k = {
 			'classes': [
 				{'name': 'LE1_PTR1',      'class_id': 9254, 'channel': False,    'description': 'Tue 15-18# (Online)',                         'instructors': ['z1234567']},
 				{'name': 'LE2_PTR2',      'class_id': 9255, 'channel': False,    'description': 'Tue 12# (w1-3,7-8, Online)',                  'instructors': ['z1234567','z1234567','z1234567']},
-				{'name': 'Workshop_H09A', 'class_id': 9246, 'channel': 'public', 'description': 'Thu 09-11 (Block G13); Fri 11-13 (Law 202)',  'instructors': ['z1234567']},  # Meng
+				{'name': 'Workshop_H09A', 'class_id': 9246, 'channel': 'public', 'description': 'Thu 09-11 (Block G13); Fri 11-13 (Law 202)',  'instructors': ['z1234567']},
 				# {'name': 'Workshop_H12B', 'class_id': 9249, 'channel': False,    'description': 'Thu 12-14 (Sqhouse203); Fri 14-16 (Law 201)', 'instructors': []}
 			],
 			'channels': [
@@ -71,7 +71,7 @@ d2k = {
 			'classes': [
 				{'name': 'LE1_MIN1',      'class_id': 9244, 'channel': False,    'description': 'Tue 14-17# (Online)',                          'instructors': ['z1234567','z1234567']},
 				{'name': 'LE2_MIN2',      'class_id': 9245, 'channel': False,    'description': 'Tue 12# (w1-3,7-8, Online)',                   'instructors': ['z1234567','z1234567','z1234567']},
-				{'name': 'Workshop_W16E', 'class_id': 9270, 'channel': 'public', 'description': 'Wed 16-18 (Quad 1042); Thu 15-17 (Quad 1042)', 'instructors': ['z1234567']}  # Nicholas B
+				{'name': 'Workshop_W16E', 'class_id': 9270, 'channel': 'public', 'description': 'Wed 16-18 (Quad 1042); Thu 15-17 (Quad 1042)', 'instructors': ['z1234567']}
 			],
 			'channels': [
 				{'name': 'Forum',           'channel': 'public',  'description': 'A place for student discussion, asking questions, etc.'},
@@ -105,9 +105,9 @@ d2k = {
 			'classes': [
 				{'name': 'LE1_SPR1',      'class_id': 9240, 'channel': False,    'description': 'Mon 14-16# (w1-3,5,10, Online); Thu 15-17# (w1-5, Online)', 'instructors': ['z1234567']},
 				{'name': 'LE2_SPR2',      'class_id': 9241, 'channel': False,    'description': 'Tue 12# (w1-3,7-8, Online)',                                'instructors': ['z1234567','z1234567','z1234567']},
-				{'name': 'LAB_W11A',      'class_id': 9264, 'channel': 'public', 'description': 'Wed 11-14 (TETB LG09)',   'instructors': ['z1234567','z1234567','z1234567']},  # Ryan, Storm, Tim
-				{'name': 'Workshop_H11A', 'class_id': 9247, 'channel': False,    'description': 'Thu 11 (TETB LG09)',      'instructors': ['z1234567','z1234567','z1234567']},  # Ryan, Storm, Tim
-				{'name': 'Workshop_H12A', 'class_id': 9248, 'channel': False,    'description': 'Thu 12 (TETB LG09)',      'instructors': ['z1234567','z1234567','z1234567']},  # Ryan, Storm, Tim
+				{'name': 'LAB_W11A',      'class_id': 9264, 'channel': 'public', 'description': 'Wed 11-14 (TETB LG09)',   'instructors': ['z1234567','z1234567','z1234567']},
+				{'name': 'Workshop_H11A', 'class_id': 9247, 'channel': False,    'description': 'Thu 11 (TETB LG09)',      'instructors': ['z1234567','z1234567','z1234567']},
+				{'name': 'Workshop_H12A', 'class_id': 9248, 'channel': False,    'description': 'Thu 12 (TETB LG09)',      'instructors': ['z1234567','z1234567','z1234567']},
 				# {'name': 'Workshop_H13A', 'class_id': 9250, 'channel': False,    'description': 'Thu 13 (TETB LG09)',      'instructors': []}
 			],
 			'channels': [
@@ -123,22 +123,22 @@ d2k = {
 			'classes': [
 				{'name': 'LE1_MEC1',      'class_id': 9238, 'channel': False,     'description': 'Mon 14-16# (w1-3,5,7-9, Online); Wed 13# (w2-5,7-9, Online)', 'instructors': ['z1234567','z1234567','z1234567']},
 				{'name': 'LE2_MEC2',      'class_id': 9239, 'channel': False,     'description': 'Tue 12# (w1-3,7-9, Online)',                                  'instructors': ['z1234567','z1234567','z1234567']},
-				{'name': 'Workshop_H15A', 'class_id': 9251, 'channel': 'private', 'description': 'Thu 15-17 (AinswthG01); Fri 11-13 (Ainswth201)',              'instructors': ['z1234567']},  # Sophia
-				{'name': 'Workshop_H15B', 'class_id': 9252, 'channel': 'private', 'description': 'Thu 15-17 (Mat 108); Fri 11-13 (Law 163)',                    'instructors': ['z1234567']},  # Garen
+				{'name': 'Workshop_H15A', 'class_id': 9251, 'channel': 'private', 'description': 'Thu 15-17 (AinswthG01); Fri 11-13 (Ainswth201)',              'instructors': ['z1234567']},
+				{'name': 'Workshop_H15B', 'class_id': 9252, 'channel': 'private', 'description': 'Thu 15-17 (Mat 108); Fri 11-13 (Law 163)',                    'instructors': ['z1234567']},
 				# {'name': 'Workshop_H15C', 'class_id': 9253, 'channel': 'private', 'description': 'Thu 15-17 (Ainswth101); Fri 11-13 (Webst 251)',               'instructors': []},
-				{'name': 'Workshop_T10A', 'class_id': 9256, 'channel': 'private', 'description': 'Tue 10-12 (ElecEngG10); Thu 09-11 (Quad G047)',               'instructors': ['z1234567']},  # Dylan
-				{'name': 'Workshop_T10B', 'class_id': 9257, 'channel': 'private', 'description': 'Tue 10-12 (Quad 1047); Thu 09-11 (ElecEngG03)',               'instructors': ['z1234567']},  # Rachael
-				{'name': 'Workshop_T14A', 'class_id': 9258, 'channel': 'private', 'description': 'Tue 14-16 (AinswthG01); Fri 09-11 (Ainswth201)',              'instructors': ['z1234567']},  # Zali
-				{'name': 'Workshop_T14B', 'class_id': 9259, 'channel': 'private', 'description': 'Tue 14-16 (ElecEngG04); Fri 09-11 (Webst 251)',               'instructors': ['z1234567']},  # Olivia
-				{'name': 'Workshop_T14C', 'class_id': 9260, 'channel': 'private', 'description': 'Tue 14-16 (JGoodsLG19); Fri 09-11 (Quad 1048)',               'instructors': ['z1234567']},  # Shantanu
+				{'name': 'Workshop_T10A', 'class_id': 9256, 'channel': 'private', 'description': 'Tue 10-12 (ElecEngG10); Thu 09-11 (Quad G047)',               'instructors': ['z1234567']},
+				{'name': 'Workshop_T10B', 'class_id': 9257, 'channel': 'private', 'description': 'Tue 10-12 (Quad 1047); Thu 09-11 (ElecEngG03)',               'instructors': ['z1234567']},
+				{'name': 'Workshop_T14A', 'class_id': 9258, 'channel': 'private', 'description': 'Tue 14-16 (AinswthG01); Fri 09-11 (Ainswth201)',              'instructors': ['z1234567']},
+				{'name': 'Workshop_T14B', 'class_id': 9259, 'channel': 'private', 'description': 'Tue 14-16 (ElecEngG04); Fri 09-11 (Webst 251)',               'instructors': ['z1234567']},
+				{'name': 'Workshop_T14C', 'class_id': 9260, 'channel': 'private', 'description': 'Tue 14-16 (JGoodsLG19); Fri 09-11 (Quad 1048)',               'instructors': ['z1234567']},
 				# {'name': 'Workshop_T14D', 'class_id': 9261, 'channel': 'private', 'description': 'Tue 14-16 (Law 111); Fri 09-11 (Quad G047)',                  'instructors': []},
-				{'name': 'Workshop_W09A', 'class_id': 9262, 'channel': 'private', 'description': 'Wed 09-11 (Ainswth101); Fri 13-15 (Ainswth201)',              'instructors': ['z1234567']},  # Susmiha
+				{'name': 'Workshop_W09A', 'class_id': 9262, 'channel': 'private', 'description': 'Wed 09-11 (Ainswth101); Fri 13-15 (Ainswth201)',              'instructors': ['z1234567']},
 				# {'name': 'Workshop_W09B',s 'class_id': 9263, 'channel': 'private', 'description': 'Wed 09-11 (ElecEngG10); Fri 13-15 (Quad G047)',               'instructors': []},
-				{'name': 'Workshop_W14A', 'class_id': 9265, 'channel': 'private', 'description': 'Wed 14-16 (Mat 232); Thu 11-13 (Mat 232)',                    'instructors': ['z1234567']},  # Mildred
-				{'name': 'Workshop_W16A', 'class_id': 9266, 'channel': 'private', 'description': 'Wed 16-18 (Ainswth201); Thu 13-15 (AinswthG01)',              'instructors': ['z1234567']},  # Thaveesha
-				{'name': 'Workshop_W16B', 'class_id': 9267, 'channel': 'private', 'description': 'Wed 16-18 (Ainswth101); Thu 13-15 (Ainswth101)',              'instructors': ['z1234567']},  # Garen
-				{'name': 'Workshop_W16C', 'class_id': 9268, 'channel': 'private', 'description': 'Wed 16-18 (Law 301); Thu 13-15 (Law 203)',                    'instructors': ['z1234567']},  # Tom
-				{'name': 'Workshop_W16D', 'class_id': 9269, 'channel': 'private', 'description': 'Wed 16-18 (Mat 230); Fri 15-17 (ElecEngG04)',                 'instructors': ['z1234567']}   # Oliver
+				{'name': 'Workshop_W14A', 'class_id': 9265, 'channel': 'private', 'description': 'Wed 14-16 (Mat 232); Thu 11-13 (Mat 232)',                    'instructors': ['z1234567']},
+				{'name': 'Workshop_W16A', 'class_id': 9266, 'channel': 'private', 'description': 'Wed 16-18 (Ainswth201); Thu 13-15 (AinswthG01)',              'instructors': ['z1234567']},
+				{'name': 'Workshop_W16B', 'class_id': 9267, 'channel': 'private', 'description': 'Wed 16-18 (Ainswth101); Thu 13-15 (Ainswth101)',              'instructors': ['z1234567']},
+				{'name': 'Workshop_W16C', 'class_id': 9268, 'channel': 'private', 'description': 'Wed 16-18 (Law 301); Thu 13-15 (Law 203)',                    'instructors': ['z1234567']},
+				{'name': 'Workshop_W16D', 'class_id': 9269, 'channel': 'private', 'description': 'Wed 16-18 (Mat 230); Fri 15-17 (ElecEngG04)',                 'instructors': ['z1234567']}
 			],
 			'channels': [
 				{'name': 'Forum',           'channel': 'public',  'description': 'A place for student discussion, asking questions, etc.'},

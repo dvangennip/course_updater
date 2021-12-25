@@ -54,7 +54,7 @@ with TeamsUpdater(my_user_file, username, password) as tu:
 ````
 
 ## Conventions for Moodle groups setup
-While there is some room for configuration, a few ways to extract data from Moodle groups info is hardcoded. This means a Moodle site needs to follow these conventions to ensure this script works:
+While there is some room for configuration, a few ways to extract data from Moodle groups info are hardcoded. This means a Moodle site needs to follow these conventions to ensure this script works:
 
 - Projects must be named `Project Group - NAME` (where name is the project name)
 - Project teams must have `team` as part of their name, so `XYZ Team B` works but `class 1 group A` would not.
