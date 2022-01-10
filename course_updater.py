@@ -209,7 +209,11 @@ class PowerShellWrapper:
 		self.login_method       = login_method
 
 		if (self.debug_mode):
-			self.log = open('cmd_logs/alog.txt', 'w')
+			try:
+				self.log = open('cmd_logs/alog.txt', 'w')
+			except FileNotFoundError as e:
+				print('\nHINT: ensure the cmd_logs directory exists.\n')
+				raise  # bare re-raise so no losing stack trace
 
 		if (lazy_start is False):
 			self.ensure_started()
